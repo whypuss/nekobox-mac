@@ -7,8 +7,33 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+static NSString *generateRandomHexToken(void) {
+    uint8_t bytes[32];
+    arc4random_buf(bytes, sizeof(bytes));
+    NSMutableString *hex = [NSMutableString stringWithCapacity:64];
+    for (size_t i = 0; i < sizeof(bytes); i++) {
+        [hex appendFormat:@"%02x", bytes[i]];
+    }
+    return [hex copy];
+}
+
+static void stripBundleQuarantineIfWritable(NSString *bundlePath) {
+    if (!bundlePath || bundlePath.length == 0) return;
+    if ([bundlePath hasPrefix:@"/Volumes/"] || [bundlePath containsString:@"/AppTranslocation/"]) return;
+    NSTask *t = [[NSTask alloc] init];
+    t.launchPath = @"/usr/bin/xattr";
+    t.arguments = @[@"-dr", @"com.apple.quarantine", bundlePath];
+    t.standardOutput = [NSFileHandle fileHandleWithNullDevice];
+    t.standardError = [NSFileHandle fileHandleWithNullDevice];
+    @try {
+        [t launch];
+        [t waitUntilExit];
+    } @catch (NSException *ex) {}
+}
 
 static int findFreeLocalPort(int preferred) {
     for (int port = preferred; port < preferred + 64; port++) {
@@ -138,7 +163,11 @@ static void performTitlebarDoubleClick(NSWindow *window) {
 @property (strong) NSMenuItem *toggleConnectItem;
 @property (strong) NSTask *coreTask;
 @property (assign) int corePort;
+@property (copy) NSString *apiToken;
+@property (assign) int clashApiPort;
+@property (copy) NSString *clashApiSecret;
 @property (assign) BOOL isConnected;
+@property (assign) BOOL isTerminating;
 @property (copy) NSString *activeProfileName;
 @property (strong) NSTimer *pollTimer;
 @property (strong) id mouseEventMonitor;
@@ -223,11 +252,16 @@ static void performTitlebarDoubleClick(NSWindow *window) {
 }
 
 - (void)startCoreProcess {
+    if (!self.apiToken || self.apiToken.length == 0) {
+        self.apiToken = generateRandomHexToken();
+    }
     self.corePort = findFreeLocalPort(19850);
     NSString *execDir = [[[NSBundle mainBundle] executablePath] stringByDeletingLastPathComponent];
     NSString *coreBin = [execDir stringByAppendingPathComponent:@"nekobox-core"];
     NSString *yacdZip = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"yacd.zip"];
     NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+
+    stripBundleQuarantineIfWritable(bundlePath);
 
     if (![[NSFileManager defaultManager] isExecutableFileAtPath:coreBin]) {
         NSAlert *alert = [[NSAlert alloc] init];
@@ -245,10 +279,15 @@ static void performTitlebarDoubleClick(NSWindow *window) {
     NSTask *task = [[NSTask alloc] init];
     task.launchPath = coreBin;
     task.currentDirectoryPath = dataDir;
+    NSMutableDictionary *env = [NSMutableDictionary dictionaryWithDictionary:[[NSProcessInfo processInfo] environment]];
+    env[@"NEKOBOX_API_TOKEN"] = self.apiToken;
+    task.environment = env;
+
     NSMutableArray *args = [NSMutableArray arrayWithArray:@[
         @"--listen", [NSString stringWithFormat:@"127.0.0.1:%d", self.corePort],
         @"--data-dir", dataDir,
-        @"--app-path", bundlePath
+        @"--app-path", bundlePath,
+        @"--parent-pid", [NSString stringWithFormat:@"%d", getpid()]
     ]];
     if ([[NSFileManager defaultManager] fileExistsAtPath:yacdZip]) {
         [args addObject:@"--yacd-zip"];
@@ -257,22 +296,47 @@ static void performTitlebarDoubleClick(NSWindow *window) {
     task.arguments = args;
     task.standardOutput = [NSFileHandle fileHandleWithNullDevice];
     task.standardError = [NSFileHandle fileHandleWithNullDevice];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(onCoreTaskTerminated:)
+                                                 name:NSTaskDidTerminateNotification
+                                               object:task];
     [task launch];
     self.coreTask = task;
 }
 
+- (void)onCoreTaskTerminated:(NSNotification *)note {
+    if (self.isTerminating) return;
+    if (note.object != self.coreTask) return;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(800 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+        if (self.isTerminating) return;
+        [self startCoreProcess];
+        [self waitForCoreAndLoad];
+    });
+}
+
 - (void)waitForCoreAndLoad {
-    NSURL *statusURL = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/api/status", self.corePort]];
+    int port = self.corePort;
+    NSString *token = self.apiToken ?: @"";
+    NSURL *statusURL = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/api/status", port]];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         for (int i = 0; i < 80; i++) {
-            NSData *data = [NSData dataWithContentsOfURL:statusURL];
-            if (data != nil && data.length > 2) {
-                break;
-            }
+            NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:statusURL cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:1.0];
+            [req setValue:token forHTTPHeaderField:@"X-Neko-Token"];
+            dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+            __block BOOL ready = NO;
+            [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+                NSHTTPURLResponse *hr = [r isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse *)r : nil;
+                if (!e && d != nil && d.length > 2 && (!hr || hr.statusCode == 200)) {
+                    ready = YES;
+                }
+                dispatch_semaphore_signal(sem);
+            }] resume];
+            dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1000 * NSEC_PER_MSEC)));
+            if (ready) break;
             usleep(100000);
         }
         dispatch_async(dispatch_get_main_queue(), ^{
-            NSURL *uiURL = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/", self.corePort]];
+            NSURL *uiURL = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/?token=%@", self.corePort, self.apiToken]];
             [self.webView loadRequest:[NSURLRequest requestWithURL:uiURL]];
             [self pollCoreStatus];
         });
@@ -300,6 +364,11 @@ static void performTitlebarDoubleClick(NSWindow *window) {
 
     WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
     [cfg.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+    NSString *tokenScriptSrc = [NSString stringWithFormat:@"window.__NEKO_TOKEN__ = \"%@\";", self.apiToken ?: @""];
+    WKUserScript *tokenScript = [[WKUserScript alloc] initWithSource:tokenScriptSrc
+                                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                                    forMainFrameOnly:YES];
+    [cfg.userContentController addUserScript:tokenScript];
     [cfg.userContentController addScriptMessageHandler:self name:@"nekoWindow"];
 
     NSView *container = [[NSView alloc] initWithFrame:frame];
@@ -366,6 +435,17 @@ static void performTitlebarDoubleClick(NSWindow *window) {
         }
     } else if ([action isEqualToString:@"titlebarDoubleClick"]) {
         performTitlebarDoubleClick(self.window);
+    } else if ([action isEqualToString:@"saveFile"]) {
+        NSString *filename = [body[@"filename"] isKindOfClass:[NSString class]] ? body[@"filename"] : @"nekobox-mac-backup.json";
+        NSString *content = [body[@"content"] isKindOfClass:[NSString class]] ? body[@"content"] : @"";
+        NSSavePanel *panel = [NSSavePanel savePanel];
+        panel.nameFieldStringValue = filename;
+        panel.canCreateDirectories = YES;
+        [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
+            if (result == NSModalResponseOK && panel.URL) {
+                [content writeToURL:panel.URL atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            }
+        }];
     }
 }
 
@@ -374,6 +454,9 @@ static void performTitlebarDoubleClick(NSWindow *window) {
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = @"POST";
     [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    if (self.apiToken) {
+        [req setValue:self.apiToken forHTTPHeaderField:@"X-Neko-Token"];
+    }
     if (jsonBody) {
         req.HTTPBody = [jsonBody dataUsingEncoding:NSUTF8StringEncoding];
     }
@@ -384,16 +467,24 @@ static void performTitlebarDoubleClick(NSWindow *window) {
 
 - (void)pollCoreStatus {
     NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/api/status", self.corePort]];
-    [[[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    if (self.apiToken) {
+        [req setValue:self.apiToken forHTTPHeaderField:@"X-Neko-Token"];
+    }
+    [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
         if (!data || err) return;
         NSDictionary *obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         if (![obj isKindOfClass:[NSDictionary class]]) return;
         NSString *state = obj[@"state"] ?: @"stopped";
         NSString *name = obj[@"activeName"] ?: @"";
+        NSNumber *cPort = [obj[@"clashApiPort"] isKindOfClass:[NSNumber class]] ? obj[@"clashApiPort"] : nil;
+        NSString *cSecret = [obj[@"clashApiSecret"] isKindOfClass:[NSString class]] ? obj[@"clashApiSecret"] : nil;
         BOOL conn = [state isEqualToString:@"connected"];
         dispatch_async(dispatch_get_main_queue(), ^{
             self.isConnected = conn;
             self.activeProfileName = name;
+            if (cPort) self.clashApiPort = [cPort intValue];
+            if (cSecret) self.clashApiSecret = cSecret;
             if (conn) {
                 self.statusTitleItem.title = [NSString stringWithFormat:@"已连接：%@", name.length > 0 ? name : @"代理中"];
                 self.toggleConnectItem.title = @"断开代理";
@@ -419,8 +510,12 @@ static void performTitlebarDoubleClick(NSWindow *window) {
 }
 
 - (void)openDashboardInBrowser:(id)sender {
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/ui/", self.corePort]];
-    [[NSWorkspace sharedWorkspace] openURL:url];
+    int cPort = self.clashApiPort > 0 ? self.clashApiPort : 9090;
+    NSString *secret = [self.clashApiSecret ?: @"" stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+    NSString *urlStr = [NSString stringWithFormat:@"http://127.0.0.1:%d/ui/?token=%@#/setup?hostname=127.0.0.1&port=%d&secret=%@",
+                        self.corePort, self.apiToken ?: @"", cPort, secret ?: @""];
+    NSURL *url = [NSURL URLWithString:urlStr];
+    if (url) [[NSWorkspace sharedWorkspace] openURL:url];
 }
 
 - (void)openPermissionGuide:(id)sender {
@@ -471,6 +566,8 @@ static void performTitlebarDoubleClick(NSWindow *window) {
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
+    self.isTerminating = YES;
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSTaskDidTerminateNotification object:nil];
     [self.pollTimer invalidate];
     if (self.mouseEventMonitor) {
         [NSEvent removeMonitor:self.mouseEventMonitor];

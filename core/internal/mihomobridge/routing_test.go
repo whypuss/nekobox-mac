@@ -334,13 +334,15 @@ func TestEnhancedMetaRuleSetsAndModes(t *testing.T) {
 		t.Fatalf("Telegram IP should route to proxy via GEOIP,telegram, got action=%s rule=%s", act, rule)
 	}
 
-	// GFW mode keeps unknown domestic domains direct while still proxying AI & GFW domains.
-	gfwOpts := matchOptions{mode: RoutingModeGFW}
-	if act, rule := policy.matchAction(&MC.Metadata{Host: "neko-unlisted-domestic-37ff1e4d.com"}, true, gfwOpts); act != actionDirect || rule != "MATCH-GFW" {
-		t.Fatalf("GFW mode should direct unknown domains, got action=%s rule=%s", act, rule)
-	}
-	if act, _ := policy.matchAction(&MC.Metadata{Host: "api.openai.com"}, true, gfwOpts); act != actionProxy {
-		t.Fatalf("GFW mode should proxy AI domains, got %s", act)
+	// GFW mode keeps unknown domestic domains direct while still proxying AI & GFW domains (both "gfw" and UI "gfw_only").
+	for _, gfwModeVal := range []string{RoutingModeGFW, "gfw_only"} {
+		gfwOpts := matchOptions{mode: gfwModeVal}
+		if act, rule := policy.matchAction(&MC.Metadata{Host: "neko-unlisted-domestic-37ff1e4d.com"}, true, gfwOpts); act != actionDirect || rule != "MATCH-GFW" {
+			t.Fatalf("GFW mode (%s) should direct unknown domains, got action=%s rule=%s", gfwModeVal, act, rule)
+		}
+		if act, _ := policy.matchAction(&MC.Metadata{Host: "api.openai.com"}, true, gfwOpts); act != actionProxy {
+			t.Fatalf("GFW mode (%s) should proxy AI domains, got %s", gfwModeVal, act)
+		}
 	}
 
 	// Optional ad blocking rejects only when blockAds=true.

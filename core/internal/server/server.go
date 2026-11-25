@@ -2,16 +2,21 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"nekobox-mac/internal/configbuilder"
@@ -23,31 +28,103 @@ import (
 )
 
 type Server struct {
-	store  *store.Store
-	engine *engine.Engine
-	appPath string
-	mux    *http.ServeMux
+	store    *store.Store
+	engine   *engine.Engine
+	appPath  string
+	apiToken string
+	mux      *http.ServeMux
 }
 
-func New(st *store.Store, eng *engine.Engine, appPath string) *Server {
+func New(st *store.Store, eng *engine.Engine, appPath string, apiToken string) *Server {
 	s := &Server{
-		store:   st,
-		engine:  eng,
-		appPath: appPath,
-		mux:     http.NewServeMux(),
+		store:    st,
+		engine:   eng,
+		appPath:  appPath,
+		apiToken: strings.TrimSpace(apiToken),
+		mux:      http.NewServeMux(),
 	}
 	s.registerRoutes()
 	return s
 }
 
+func isLoopbackHost(hostPort string) bool {
+	if hostPort == "" {
+		return true
+	}
+	h := hostPort
+	if parsedHost, _, err := net.SplitHostPort(hostPort); err == nil {
+		h = parsedHost
+	}
+	h = strings.Trim(strings.ToLower(h), "[]")
+	return h == "127.0.0.1" || h == "localhost" || h == "::1"
+}
+
+func isAllowedOrigin(origin string) bool {
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || strings.ToLower(u.Scheme) != "http" {
+		return false
+	}
+	return isLoopbackHost(u.Host)
+}
+
+func (s *Server) tokenMatches(candidate string) bool {
+	if s.apiToken == "" {
+		return true
+	}
+	if len(candidate) != len(s.apiToken) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(s.apiToken)) == 1
+}
+
+func (s *Server) isAuthorized(r *http.Request) bool {
+	if s.apiToken == "" {
+		return true
+	}
+	if hdr := strings.TrimSpace(r.Header.Get("X-Neko-Token")); hdr != "" && s.tokenMatches(hdr) {
+		return true
+	}
+	if c, err := r.Cookie("neko_token"); err == nil && s.tokenMatches(c.Value) {
+		return true
+	}
+	if q := strings.TrimSpace(r.URL.Query().Get("token")); q != "" && s.tokenMatches(q) {
+		return true
+	}
+	return false
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	// Block DNS rebinding & cross-origin browser attacks against localhost API
+	if !isLoopbackHost(r.Host) || !isAllowedOrigin(r.Header.Get("Origin")) {
+		http.Error(w, "forbidden origin or host", http.StatusForbidden)
+		return
+	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+
+	if s.apiToken != "" {
+		if q := strings.TrimSpace(r.URL.Query().Get("token")); q != "" && s.tokenMatches(q) {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "neko_token",
+				Value:    s.apiToken,
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteStrictMode,
+			})
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/clash-api/") {
+			if !s.isAuthorized(r) {
+				writeErr(w, http.StatusUnauthorized, fmt.Errorf("unauthorized local API request"))
+				return
+			}
+		}
+	}
+
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -96,6 +173,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/macos/apps", s.handleMacApps)
 	s.mux.HandleFunc("/api/macos/permissions", s.handleMacPermissions)
 	s.mux.HandleFunc("/api/macos/open-settings", s.handleMacOpenSettings)
+	s.mux.HandleFunc("/api/macos/install-app", s.handleMacInstallApp)
 	s.mux.HandleFunc("/api/app-proxy", s.handleAppProxy)
 	s.mux.HandleFunc("/api/meta/status", s.handleMetaStatus)
 	s.mux.HandleFunc("/api/meta/refresh", s.handleMetaRefresh)
@@ -339,11 +417,15 @@ func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	curStatus := s.engine.Status()
+	if curStatus.State != engine.StateStopped && curStatus.ActiveProfile == body.ID {
+		_ = s.engine.Stop()
+	}
 	if err := s.store.DeleteProfile(body.ID); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, map[string]any{"state": s.store.Snapshot()})
+	writeJSON(w, map[string]any{"state": s.store.Snapshot(), "status": s.engine.Status()})
 }
 
 func (s *Server) handleSelectProfile(w http.ResponseWriter, r *http.Request) {
@@ -483,7 +565,13 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, map[string]any{"state": s.store.Snapshot()})
+	curStatus := s.engine.Status()
+	if curStatus.State != engine.StateStopped && curStatus.ActiveProfile > 0 {
+		if _, exists := s.store.GetProfile(curStatus.ActiveProfile); !exists {
+			_ = s.engine.Stop()
+		}
+	}
+	writeJSON(w, map[string]any{"state": s.store.Snapshot(), "status": s.engine.Status()})
 }
 
 func (s *Server) handleSelectGroup(w http.ResponseWriter, r *http.Request) {
@@ -588,6 +676,30 @@ func (s *Server) handleMacOpenSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) handleMacInstallApp(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Relaunch bool `json:"relaunch"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	dest, err := macos.InstallToApplications(s.appPath)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if body.Relaunch && filepath.Clean(s.appPath) != filepath.Clean(dest) {
+		go func() {
+			time.Sleep(250 * time.Millisecond)
+			_ = exec.Command("/usr/bin/open", "-n", "-a", dest).Start()
+			time.Sleep(200 * time.Millisecond)
+			if ppid := os.Getppid(); ppid > 1 {
+				_ = syscall.Kill(ppid, syscall.SIGTERM)
+			}
+			_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+		}()
+	}
+	writeJSON(w, map[string]any{"ok": true, "dest": dest})
 }
 
 func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {

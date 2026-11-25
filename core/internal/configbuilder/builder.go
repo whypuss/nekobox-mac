@@ -2,15 +2,18 @@
 package configbuilder
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"nekobox-mac/internal/boxconfig"
 	"nekobox-mac/internal/store"
+	"nekobox-mac/internal/xraybridge"
 )
 
 const (
@@ -193,6 +196,14 @@ func BuildSingBoxConfig(st store.State, profile store.Profile, opts BuildOptions
 				var full, suffix, keyword, regex []string
 				for _, d := range domains {
 					switch {
+					case strings.EqualFold(d, "geosite:private"):
+						suffix = append(suffix, "local", "lan", "localhost", "invalid")
+					case strings.HasPrefix(strings.ToLower(d), "geosite:"):
+						// Avoid referencing external geosite.db when bundled MRS handles Meta routing
+						code := strings.TrimSpace(d[len("geosite:"):])
+						if code == "cn" {
+							suffix = append(suffix, "cn")
+						}
 					case strings.HasPrefix(d, "full:"):
 						full = append(full, strings.TrimPrefix(d, "full:"))
 					case strings.HasPrefix(d, "domain:"):
@@ -221,7 +232,11 @@ func BuildSingBoxConfig(st store.State, profile store.Profile, opts BuildOptions
 			if ips := splitList(r.IPs); len(ips) > 0 {
 				var cidrs []string
 				for _, ip := range ips {
-					if !strings.HasPrefix(ip, "geoip:") {
+					if strings.EqualFold(ip, "geoip:private") {
+						ruleObj["ip_is_private"] = true
+						continue
+					}
+					if !strings.HasPrefix(strings.ToLower(ip), "geoip:") {
 						if !strings.Contains(ip, "/") {
 							if strings.Contains(ip, ":") {
 								ip += "/128"
@@ -236,8 +251,13 @@ func BuildSingBoxConfig(st store.State, profile store.Profile, opts BuildOptions
 					ruleObj["ip_cidr"] = cidrs
 				}
 			}
-			if ports := splitPorts(r.Ports); len(ports) > 0 {
-				ruleObj["port"] = ports
+			if ports, portRanges := splitPortsAndRanges(r.Ports); len(ports) > 0 || len(portRanges) > 0 {
+				if len(ports) > 0 {
+					ruleObj["port"] = ports
+				}
+				if len(portRanges) > 0 {
+					ruleObj["port_range"] = portRanges
+				}
 			}
 			if r.Network != "" {
 				ruleObj["network"] = r.Network
@@ -412,6 +432,9 @@ func BuildSingBoxConfig(st store.State, profile store.Profile, opts BuildOptions
 			clashAPI := map[string]any{
 				"external_controller": fmt.Sprintf("127.0.0.1:%d", settings.ClashAPIPort),
 			}
+			if settings.ClashAPISecret != "" {
+				clashAPI["secret"] = settings.ClashAPISecret
+			}
 			if opts.YacdDir != "" {
 				clashAPI["external_ui"] = opts.YacdDir
 			}
@@ -452,6 +475,16 @@ func buildOutbound(p store.Profile, tag string, globalAllowInsecure bool) (map[s
 	getI := func(k string, def int) int { return intVal(p.Params[k], def) }
 	getB := func(k string) bool { return boolVal(p.Params[k]) }
 	insecure := globalAllowInsecure || getB("allowInsecure")
+
+	// Explicit core selection overrides
+	if strings.EqualFold(p.Core, "mihomo") && p.Type != "naive" {
+		return buildMihomoOutbound(p, tag, insecure), nil
+	}
+	if strings.EqualFold(p.Core, "xray") {
+		if xob, err := buildXrayOutbound(p, tag); err == nil {
+			return xob, nil
+		}
+	}
 
 	// Mihomo-native protocols
 	switch p.Type {
@@ -693,9 +726,133 @@ func buildOutbound(p store.Profile, tag string, globalAllowInsecure bool) (map[s
 		}
 		return ob, nil
 
+	case "naive":
+		ob := map[string]any{
+			"type":        "http",
+			"tag":         tag,
+			"server":      p.Address,
+			"server_port": p.Port,
+			"tls": map[string]any{
+				"enabled":     true,
+				"server_name": firstNonEmpty(getS("sni"), p.Address),
+				"insecure":    insecure,
+			},
+		}
+		if u := getS("username"); u != "" {
+			ob["username"] = u
+			ob["password"] = getS("password")
+		}
+		return ob, nil
+
 	default:
 		// Route any additional Clash/Mihomo protocol cleanly through mihomobridge
 		return buildMihomoOutbound(p, tag, insecure), nil
+	}
+}
+
+func buildXrayOutbound(p store.Profile, tag string) (map[string]any, error) {
+	uri := formatXrayShareURI(p)
+	if uri == "" {
+		return nil, fmt.Errorf("protocol %s does not support Xray share bridge", p.Type)
+	}
+	wrapped, err := xraybridge.ParseShareLink(uri)
+	if err != nil || wrapped == "" {
+		return nil, fmt.Errorf("xray bridge parse: %w", err)
+	}
+	var ob map[string]any
+	if err := json.Unmarshal([]byte(wrapped), &ob); err != nil {
+		return nil, err
+	}
+	ob["tag"] = tag
+	return ob, nil
+}
+
+func formatXrayShareURI(p store.Profile) string {
+	hostPort := net.JoinHostPort(p.Address, strconv.Itoa(p.Port))
+	getS := func(k string) string { return strVal(p.Params[k]) }
+	q := url.Values{}
+	q.Set("core", "xray")
+
+	switch p.Type {
+	case "vless":
+		q.Set("encryption", firstNonEmpty(getS("encryption"), "none"))
+		if v := getS("security"); v != "" {
+			q.Set("security", v)
+		}
+		if v := getS("flow"); v != "" {
+			q.Set("flow", v)
+		}
+		if v := getS("sni"); v != "" {
+			q.Set("sni", v)
+		}
+		if v := getS("fp"); v != "" {
+			q.Set("fp", v)
+		}
+		if v := getS("pbk"); v != "" {
+			q.Set("pbk", v)
+		}
+		if v := getS("sid"); v != "" {
+			q.Set("sid", v)
+		}
+		if v := getS("spx"); v != "" {
+			q.Set("spx", v)
+		}
+		if v := getS("transport"); v != "" {
+			q.Set("type", v)
+		}
+		if v := getS("host"); v != "" {
+			q.Set("host", v)
+		}
+		if v := getS("path"); v != "" {
+			q.Set("path", v)
+		}
+		if v := getS("serviceName"); v != "" {
+			q.Set("serviceName", v)
+		}
+		if v := getS("mode"); v != "" {
+			q.Set("mode", v)
+		}
+		return fmt.Sprintf("vless://%s@%s?%s", url.User(getS("uuid")).String(), hostPort, q.Encode())
+	case "trojan", "trojan-go":
+		if v := getS("security"); v != "" {
+			q.Set("security", v)
+		}
+		if v := getS("sni"); v != "" {
+			q.Set("sni", v)
+		}
+		if v := getS("transport"); v != "" {
+			q.Set("type", v)
+		}
+		if v := getS("host"); v != "" {
+			q.Set("host", v)
+		}
+		if v := getS("path"); v != "" {
+			q.Set("path", v)
+		}
+		return fmt.Sprintf("trojan://%s@%s?%s", url.User(getS("password")).String(), hostPort, q.Encode())
+	case "vmess":
+		q.Set("encryption", firstNonEmpty(getS("cipher"), "auto"))
+		if v := getS("security"); v != "" {
+			q.Set("security", v)
+		}
+		if v := getS("sni"); v != "" {
+			q.Set("sni", v)
+		}
+		if v := getS("transport"); v != "" {
+			q.Set("type", v)
+		}
+		if v := getS("host"); v != "" {
+			q.Set("host", v)
+		}
+		if v := getS("path"); v != "" {
+			q.Set("path", v)
+		}
+		return fmt.Sprintf("vmess://%s@%s?%s", url.User(getS("uuid")).String(), hostPort, q.Encode())
+	case "shadowsocks":
+		cred := base64.RawURLEncoding.EncodeToString([]byte(getS("method") + ":" + getS("password")))
+		return fmt.Sprintf("ss://%s@%s?%s", cred, hostPort, q.Encode())
+	default:
+		return ""
 	}
 }
 
@@ -710,6 +867,107 @@ func buildMihomoOutbound(p store.Profile, tag string, insecure bool) map[string]
 		"port":   p.Port,
 	}
 	switch p.Type {
+	case "shadowsocks":
+		proxy["type"] = "ss"
+		proxy["cipher"] = firstNonEmpty(getS("method"), getS("cipher"))
+		proxy["password"] = getS("password")
+		proxy["udp"] = true
+	case "vless":
+		proxy["uuid"] = getS("uuid")
+		proxy["udp"] = true
+		if f := getS("flow"); f != "" {
+			proxy["flow"] = f
+		}
+		if sec := strings.ToLower(getS("security")); sec == "tls" || sec == "reality" {
+			proxy["tls"] = true
+			proxy["servername"] = firstNonEmpty(getS("sni"), p.Address)
+			proxy["skip-cert-verify"] = insecure
+			if fp := getS("fp"); fp != "" {
+				proxy["client-fingerprint"] = fp
+			}
+			if sec == "reality" {
+				proxy["reality-opts"] = map[string]any{
+					"public-key": getS("pbk"),
+					"short-id":   getS("sid"),
+				}
+			}
+		}
+		if tr := strings.ToLower(getS("transport")); tr != "" && tr != "tcp" {
+			proxy["network"] = tr
+			if tr == "ws" {
+				wsOpts := map[string]any{"path": firstNonEmpty(getS("path"), "/")}
+				if h := getS("host"); h != "" {
+					wsOpts["headers"] = map[string]any{"Host": h}
+				}
+				proxy["ws-opts"] = wsOpts
+			} else if tr == "grpc" {
+				proxy["grpc-opts"] = map[string]any{"grpc-service-name": firstNonEmpty(getS("serviceName"), getS("path"))}
+			}
+		}
+	case "vmess":
+		proxy["uuid"] = getS("uuid")
+		proxy["alterId"] = getI("alterId", 0)
+		proxy["cipher"] = firstNonEmpty(getS("cipher"), "auto")
+		proxy["udp"] = true
+		if strings.EqualFold(getS("security"), "tls") {
+			proxy["tls"] = true
+			proxy["servername"] = firstNonEmpty(getS("sni"), p.Address)
+			proxy["skip-cert-verify"] = insecure
+		}
+		if tr := strings.ToLower(getS("transport")); tr != "" && tr != "tcp" {
+			proxy["network"] = tr
+			if tr == "ws" {
+				wsOpts := map[string]any{"path": firstNonEmpty(getS("path"), "/")}
+				if h := getS("host"); h != "" {
+					wsOpts["headers"] = map[string]any{"Host": h}
+				}
+				proxy["ws-opts"] = wsOpts
+			} else if tr == "grpc" {
+				proxy["grpc-opts"] = map[string]any{"grpc-service-name": firstNonEmpty(getS("serviceName"), getS("path"))}
+			}
+		}
+	case "trojan", "trojan-go":
+		proxy["type"] = "trojan"
+		proxy["password"] = getS("password")
+		proxy["sni"] = firstNonEmpty(getS("sni"), p.Address)
+		proxy["skip-cert-verify"] = insecure
+		proxy["udp"] = true
+	case "hysteria2":
+		proxy["password"] = getS("password")
+		proxy["sni"] = firstNonEmpty(getS("sni"), p.Address)
+		proxy["skip-cert-verify"] = insecure
+		if obfs := getS("obfs"); obfs != "" {
+			proxy["obfs"] = obfs
+			proxy["obfs-password"] = getS("obfsPassword")
+		}
+	case "tuic":
+		proxy["uuid"] = getS("uuid")
+		proxy["password"] = getS("password")
+		proxy["sni"] = firstNonEmpty(getS("sni"), p.Address)
+		proxy["skip-cert-verify"] = insecure
+		proxy["udp-relay-mode"] = firstNonEmpty(getS("udpRelayMode"), "native")
+		proxy["congestion-controller"] = firstNonEmpty(getS("congestionControl"), "bbr")
+	case "anytls":
+		proxy["password"] = getS("password")
+		proxy["sni"] = firstNonEmpty(getS("sni"), p.Address)
+		proxy["skip-cert-verify"] = insecure
+		proxy["udp"] = true
+		if fp := getS("fp"); fp != "" {
+			proxy["client-fingerprint"] = fp
+		}
+	case "wireguard":
+		proxy["private-key"] = getS("privateKey")
+		proxy["public-key"] = getS("publicKey")
+		proxy["ip"] = firstNonEmpty(strings.Split(getS("address"), ",")[0], "172.16.0.2/32")
+		proxy["mtu"] = getI("mtu", 1420)
+		proxy["udp"] = true
+	case "socks":
+		proxy["type"] = "socks5"
+		proxy["udp"] = true
+		if u := getS("username"); u != "" {
+			proxy["username"] = u
+			proxy["password"] = getS("password")
+		}
 	case "ssr":
 		proxy["password"] = getS("password")
 		proxy["cipher"] = getS("cipher")
@@ -917,14 +1175,24 @@ func splitList(s string) []string {
 	return res
 }
 
-func splitPorts(s string) []uint16 {
-	var res []uint16
+func splitPortsAndRanges(s string) ([]uint16, []string) {
+	var ports []uint16
+	var ranges []string
 	for _, part := range splitList(s) {
+		norm := strings.ReplaceAll(part, "-", ":")
+		if aStr, bStr, ok := strings.Cut(norm, ":"); ok {
+			a, err1 := strconv.Atoi(strings.TrimSpace(aStr))
+			b, err2 := strconv.Atoi(strings.TrimSpace(bStr))
+			if err1 == nil && err2 == nil && a > 0 && b <= 65535 && a <= b {
+				ranges = append(ranges, fmt.Sprintf("%d:%d", a, b))
+			}
+			continue
+		}
 		if n, err := strconv.Atoi(part); err == nil && n > 0 && n <= 65535 {
-			res = append(res, uint16(n))
+			ports = append(ports, uint16(n))
 		}
 	}
-	return res
+	return ports, ranges
 }
 
 func firstNonEmpty(vals ...string) string {

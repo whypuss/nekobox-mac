@@ -8,7 +8,21 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
+
+var (
+	proxyStatusMu     sync.Mutex
+	cachedProxyStatus SystemProxyStatus
+	proxyStatusExpiry time.Time
+)
+
+func invalidateProxyStatusCache() {
+	proxyStatusMu.Lock()
+	proxyStatusExpiry = time.Time{}
+	proxyStatusMu.Unlock()
+}
 
 var defaultBypassDomains = []string{
 	"127.0.0.1",
@@ -85,6 +99,7 @@ func EnableSystemProxy(host string, port int) ([]string, error) {
 	if len(applied) == 0 && lastErr != nil {
 		return nil, lastErr
 	}
+	invalidateProxyStatusCache()
 	return applied, nil
 }
 
@@ -102,6 +117,7 @@ func DisableSystemProxy() error {
 			}
 		}
 	}
+	invalidateProxyStatusCache()
 	return lastErr
 }
 
@@ -114,6 +130,14 @@ type SystemProxyStatus struct {
 }
 
 func GetSystemProxyStatus() SystemProxyStatus {
+	proxyStatusMu.Lock()
+	if time.Now().Before(proxyStatusExpiry) {
+		st := cachedProxyStatus
+		proxyStatusMu.Unlock()
+		return st
+	}
+	proxyStatusMu.Unlock()
+
 	services, err := ActiveNetworkServices()
 	if err != nil {
 		return SystemProxyStatus{}
@@ -137,5 +161,10 @@ func GetSystemProxyStatus() SystemProxyStatus {
 			}
 		}
 	}
+
+	proxyStatusMu.Lock()
+	cachedProxyStatus = st
+	proxyStatusExpiry = time.Now().Add(5 * time.Second)
+	proxyStatusMu.Unlock()
 	return st
 }

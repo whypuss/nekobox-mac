@@ -18,15 +18,23 @@
 | Apple Silicon 独立版 | `arm64` | `Nekobox-Mac-*-arm64.dmg`（仅 M 系列芯片） |
 | Intel Mac 独立版 | `x64` (`x86_64`) | `Nekobox-Mac-*-x64.dmg`（仅 Intel x64 芯片） |
 
-### 终端一键安装（推荐，装完可直接双击打开）
+### 免风险提示安装与直接打开（无需进系统设置点「强制打开」）
 
-未配置 Apple Developer 公证证书时，通过浏览器下载的 `.dmg` 会被 macOS 附加隔离标记而弹窗拦截。使用终端一键脚本安装（自动校验 SHA-256 并安装到 `/Applications/Nekobox-Mac.app`）后可直接双击打开：
+由于 macOS 浏览器（Safari / Chrome 等）会对所有网页下载的 `.dmg` 自动附加 `com.apple.quarantine` 隔离属性，未配置 Apple 付费公证证书（$99/年）时直接从浏览器下载拖拽打开会触发 Gatekeeper 提示。推荐任选以下方式实现**零风险提示直接打开**：
 
+**方式 A：终端一键下载并免隔离安装（装完自动启动，全程零弹窗）**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/whypuss/nekobox-mac/main/scripts/install.sh | bash
 ```
 
-若要使浏览器直接下载的 `.dmg` 在任意 Mac 上实现零弹窗双击直接打开，需配置 Apple Developer ID Application 证书与 Apple 公证（Notarization）。本仓库构建脚本与 GitHub Actions 已原生支持：配置 `SIGN_IDENTITY`、`NOTARY_APPLE_ID`、`NOTARY_TEAM_ID`、`NOTARY_PASSWORD`（或 CI Secrets `APPLE_CERT_P12_BASE64`、`APPLE_CERT_PASSWORD`、`APPLE_SIGN_IDENTITY`、`APPLE_NOTARY_ID`、`APPLE_TEAM_ID`、`APPLE_NOTARY_PASSWORD`）即可自动完成 Hardened Runtime 签名、公证与票据装订（Staple）。
+**方式 B：若已手动把 DMG 拖入「应用程序」，一行命令永久解除风险提示并打开**
+```bash
+xattr -cr /Applications/Nekobox-Mac.app && open -a /Applications/Nekobox-Mac.app
+```
+
+> 注：软件一旦成功启动一次，内置自愈机制会自动清除包内残留的 `com.apple.quarantine` 标记；若在挂载的 DMG 中直接打开，也可点击软件弹窗内的「一键安装到应用程序并免风险启动」自动完成免隔离安装。
+
+若要使浏览器直接下载的 `.dmg` 在任意 Mac 上无需终端即可双击零弹窗打开，可配置 Apple Developer ID Application 证书与 Apple 公证（Notarization）。本仓库构建脚本与 GitHub Actions 已原生支持：配置 `SIGN_IDENTITY`、`NOTARY_APPLE_ID`、`NOTARY_TEAM_ID`、`NOTARY_PASSWORD`（或 CI Secrets `APPLE_CERT_P12_BASE64`、`APPLE_CERT_PASSWORD`、`APPLE_SIGN_IDENTITY`、`APPLE_NOTARY_ID`、`APPLE_TEAM_ID`、`APPLE_NOTARY_PASSWORD`）即可自动完成 Hardened Runtime 签名、公证与票据装订（Staple）。
 
 ## 核心特性
 

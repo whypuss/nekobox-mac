@@ -72,6 +72,7 @@ type StatusSnapshot struct {
 	ServiceMode    string                  `json:"serviceMode"`
 	MixedPort      int                     `json:"mixedPort"`
 	ClashAPIPort   int                     `json:"clashApiPort"`
+	ClashAPISecret string                  `json:"clashApiSecret,omitempty"`
 	TxRate         int64                   `json:"txRate"`
 	RxRate         int64                   `json:"rxRate"`
 	TxTotal        int64                   `json:"txTotal"`
@@ -101,19 +102,21 @@ type Engine struct {
 	assetsDir string
 	yacdDir   string
 
-	mu            sync.Mutex
-	state         State
-	box           *box.Box
-	boxCancel     context.CancelFunc
-	v2api         *v2rayapi.StatsService
-	pauseManager  pause.Manager
-	activeProfile int64
-	activeName    string
-	activeType    string
-	activeCore    string
-	activeMode    string
-	activePort    int
-	startedAt     int64
+	opMu            sync.Mutex
+	mu              sync.Mutex
+	state           State
+	box             *box.Box
+	boxCancel       context.CancelFunc
+	v2api           *v2rayapi.StatsService
+	pauseManager    pause.Manager
+	activeProfile   int64
+	activeName      string
+	activeType      string
+	activeCore      string
+	activeMode      string
+	activePort      int
+	sysProxyManaged bool
+	startedAt       int64
 	lastError     string
 	lastLatencyMs int
 	txRate        int64
@@ -292,10 +295,11 @@ func (e *Engine) Status() StatusSnapshot {
 		ActiveName:    e.activeName,
 		ActiveType:    e.activeType,
 		ActiveCore:    e.activeCore,
-		ServiceMode:   e.activeMode,
-		MixedPort:     st.Settings.MixedPort,
-		ClashAPIPort:  st.Settings.ClashAPIPort,
-		TxRate:        e.txRate,
+		ServiceMode:    e.activeMode,
+		MixedPort:      st.Settings.MixedPort,
+		ClashAPIPort:   st.Settings.ClashAPIPort,
+		ClashAPISecret: st.Settings.ClashAPISecret,
+		TxRate:         e.txRate,
 		RxRate:        e.rxRate,
 		TxTotal:       e.txTotal,
 		RxTotal:       e.rxTotal,
@@ -353,6 +357,9 @@ func (e *Engine) Wake() {
 // Start launches the sing-box + Xray + Mihomo tri-core instance for the selected profile.
 func (e *Engine) Start(profileID int64) (err error) {
 	defer device.DeferPanicToError("engine.Start", func(perr error) { err = perr })
+
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
 
 	e.mu.Lock()
 	if e.state == StateConnected || e.state == StateConnecting {
@@ -427,10 +434,12 @@ func (e *Engine) Start(profileID int64) (err error) {
 	}
 
 	// Configure macOS System Proxy if enabled
+	sysProxyManaged := false
 	if actualMode == "system_proxy" || (actualMode != "mixed_only" && st.Settings.AutoSetSystemProxy) {
 		if svcs, err := macos.EnableSystemProxy("127.0.0.1", st.Settings.MixedPort); err != nil {
 			e.appendLog("warn", "配置 macOS 系统代理失败: "+err.Error())
 		} else {
+			sysProxyManaged = true
 			e.appendLog("info", fmt.Sprintf("已配置 macOS 系统代理 127.0.0.1:%d (%s)", st.Settings.MixedPort, strings.Join(svcs, ", ")))
 		}
 	}
@@ -443,6 +452,7 @@ func (e *Engine) Start(profileID int64) (err error) {
 	e.state = StateConnected
 	e.activeMode = actualMode
 	e.activePort = st.Settings.MixedPort
+	e.sysProxyManaged = sysProxyManaged
 	e.startedAt = time.Now().UnixMilli()
 	e.txRate, e.rxRate = 0, 0
 	e.txTotal, e.rxTotal = 0, 0
@@ -471,6 +481,9 @@ func (e *Engine) failStart(err error) {
 }
 
 func (e *Engine) Stop() error {
+	e.opMu.Lock()
+	defer e.opMu.Unlock()
+
 	e.mu.Lock()
 	e.stopLocked(true)
 	e.mu.Unlock()
@@ -496,8 +509,13 @@ func (e *Engine) stopLocked(disableSysProxy bool) {
 	e.coreSleeping = false
 	e.txRate, e.rxRate = 0, 0
 	wasConnected := e.state != StateStopped
+	wasManagingProxy := e.sysProxyManaged
 	e.state = StateStopped
-	if disableSysProxy {
+	if wasConnected {
+		_ = e.store.Flush()
+	}
+	if disableSysProxy && wasManagingProxy {
+		e.sysProxyManaged = false
 		if err := macos.DisableSystemProxy(); err != nil && wasConnected {
 			e.appendLog("warn", "清理 macOS 系统代理时遇到提示: "+err.Error())
 		} else if wasConnected {
@@ -523,28 +541,38 @@ func (e *Engine) pollTrafficLoop(stopCh chan struct{}, profileID int64) {
 				e.mu.Unlock()
 				continue
 			}
-			var up, down int64
+			var proxyUp, proxyDown, directUp, directDown int64
 			for _, tag := range []string{configbuilder.TagProxy, configbuilder.TagDirect, configbuilder.TagBypass} {
+				var tUp, tDown int64
 				if resp, err := api.GetStats(context.Background(), &v2rayapi.GetStatsRequest{
 					Name:   "outbound>>>" + tag + ">>>traffic>>>uplink",
 					Reset_: true,
 				}); err == nil && resp != nil {
-					up += resp.GetStat().GetValue()
+					tUp = resp.GetStat().GetValue()
 				}
 				if resp, err := api.GetStats(context.Background(), &v2rayapi.GetStatsRequest{
 					Name:   "outbound>>>" + tag + ">>>traffic>>>downlink",
 					Reset_: true,
 				}); err == nil && resp != nil {
-					down += resp.GetStat().GetValue()
+					tDown = resp.GetStat().GetValue()
+				}
+				if tag == configbuilder.TagProxy {
+					proxyUp += tUp
+					proxyDown += tDown
+				} else {
+					directUp += tUp
+					directDown += tDown
 				}
 			}
+			up := proxyUp + directUp
+			down := proxyDown + directDown
 			e.txRate = up
 			e.rxRate = down
 			e.txTotal += up
 			e.rxTotal += down
 			e.mu.Unlock()
-			if up > 0 || down > 0 {
-				e.store.AddProfileTraffic(profileID, up, down)
+			if proxyUp > 0 || proxyDown > 0 {
+				e.store.AddProfileTraffic(profileID, proxyUp, proxyDown)
 			}
 			e.broadcastStatus()
 		}

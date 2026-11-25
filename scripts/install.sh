@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Nekobox-Mac macOS direct installer (downloads verified DMG via curl so macOS does not attach browser quarantine)
+# Nekobox-Mac macOS zero-quarantine installer & local Gatekeeper fixer
+# Downloads verified DMG via curl (or reuses verified local DMG), strips all quarantine xattrs, and installs cleanly.
 set -euo pipefail
 
 REPO="${REPO:-whypuss/nekobox-mac}"
@@ -13,6 +14,21 @@ APP_DEST="/Applications/Nekobox-Mac.app"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "Error: Nekobox-Mac only supports macOS." >&2
   exit 1
+fi
+
+# Quick fix mode if user already dragged Nekobox-Mac.app into /Applications
+if [[ "${VERSION}" == "--fix" || "${VERSION}" == "--fix-only" ]]; then
+  if [[ ! -d "$APP_DEST" ]]; then
+    echo "Error: ${APP_DEST} not found. Run without --fix to download and install." >&2
+    exit 1
+  fi
+  xattr -cr "$APP_DEST"
+  codesign --verify --deep --strict "$APP_DEST"
+  echo "[Nekobox-Mac] Quarantine removed and signature verified: ${APP_DEST}"
+  if [[ "${NO_OPEN:-0}" != "1" ]]; then
+    open -a "$APP_DEST"
+  fi
+  exit 0
 fi
 
 if [[ "$VERSION" == "latest" ]]; then
@@ -40,25 +56,42 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "[Nekobox-Mac] Downloading ${DMG_NAME} (${TAG})..."
-curl -fL --progress-bar "${BASE_URL}/${DMG_NAME}" -o "${TMP_DIR}/${DMG_NAME}"
-
+EXPECTED=""
 if curl -fsSL "${BASE_URL}/SHA256SUMS.txt" -o "${TMP_DIR}/SHA256SUMS.txt" 2>/dev/null; then
   EXPECTED="$(awk -v f="$DMG_NAME" '$2==f {print $1}' "${TMP_DIR}/SHA256SUMS.txt")"
-  if [[ -n "$EXPECTED" ]]; then
-    ACTUAL="$(shasum -a 256 "${TMP_DIR}/${DMG_NAME}" | awk '{print $1}')"
-    if [[ "$ACTUAL" != "$EXPECTED" ]]; then
-      echo "Error: SHA-256 mismatch! expected=${EXPECTED} actual=${ACTUAL}" >&2
-      exit 1
-    fi
-    echo "[Nekobox-Mac] SHA-256 verified: ${ACTUAL}"
+fi
+
+DMG_FILE="${TMP_DIR}/${DMG_NAME}"
+LOCAL_CANDIDATE="${HOME}/Downloads/${DMG_NAME}"
+
+if [[ -n "$EXPECTED" && -f "$LOCAL_CANDIDATE" ]]; then
+  LOCAL_HASH="$(shasum -a 256 "$LOCAL_CANDIDATE" | awk '{print $1}')"
+  if [[ "$LOCAL_HASH" == "$EXPECTED" ]]; then
+    echo "[Nekobox-Mac] Found verified ${DMG_NAME} in ~/Downloads, reusing directly..."
+    cp "$LOCAL_CANDIDATE" "$DMG_FILE"
   fi
 fi
 
-echo "[Nekobox-Mac] Mounting DMG and installing to ${APP_DEST}..."
+if [[ ! -f "$DMG_FILE" ]]; then
+  echo "[Nekobox-Mac] Downloading ${DMG_NAME} (${TAG})..."
+  curl -fL --progress-bar "${BASE_URL}/${DMG_NAME}" -o "$DMG_FILE"
+fi
+
+if [[ -n "$EXPECTED" ]]; then
+  ACTUAL="$(shasum -a 256 "$DMG_FILE" | awk '{print $1}')"
+  if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+    echo "Error: SHA-256 mismatch! expected=${EXPECTED} actual=${ACTUAL}" >&2
+    exit 1
+  fi
+  echo "[Nekobox-Mac] SHA-256 verified: ${ACTUAL}"
+fi
+
+xattr -cr "$DMG_FILE" 2>/dev/null || true
+
+echo "[Nekobox-Mac] Mounting DMG and installing to ${APP_DEST} (zero quarantine)..."
 MOUNT_POINT="${TMP_DIR}/mnt"
 mkdir -p "$MOUNT_POINT"
-hdiutil attach "${TMP_DIR}/${DMG_NAME}" -mountpoint "$MOUNT_POINT" -nobrowse -quiet
+hdiutil attach "$DMG_FILE" -mountpoint "$MOUNT_POINT" -nobrowse -noverify -quiet
 
 if pgrep -x "Nekobox-Mac" >/dev/null 2>&1; then
   echo "[Nekobox-Mac] Stopping running Nekobox-Mac..."
@@ -67,8 +100,12 @@ if pgrep -x "Nekobox-Mac" >/dev/null 2>&1; then
 fi
 
 rm -rf "$APP_DEST"
-ditto "${MOUNT_POINT}/Nekobox-Mac.app" "$APP_DEST"
+ditto --noqtn "${MOUNT_POINT}/Nekobox-Mac.app" "$APP_DEST"
+xattr -cr "$APP_DEST" 2>/dev/null || true
 codesign --verify --deep --strict "$APP_DEST"
 
-echo "[Nekobox-Mac] Installed successfully to ${APP_DEST}."
-echo "You can now open Nekobox-Mac directly from Applications or Spotlight."
+echo "[Nekobox-Mac] Installed successfully to ${APP_DEST} (quarantine-free)."
+if [[ "${NO_OPEN:-0}" != "1" ]]; then
+  echo "[Nekobox-Mac] Launching Nekobox-Mac..."
+  open -a "$APP_DEST" || true
+fi

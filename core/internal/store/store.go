@@ -2,15 +2,26 @@
 package store
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
+
+func generateRandomSecret() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("neko-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
 
 // Profile represents a proxy node in Nekobox-Mac, covering all protocols supported
 // by the sing-box + Xray-core + Mihomo tri-core engine.
@@ -146,6 +157,7 @@ type Settings struct {
 	ConnectionTestConcurrent int    `json:"connectionTestConcurrent"` // 1,3,5,8,12,16 (default 5)
 	EnableClashAPI           bool   `json:"enableClashApi"`           // default true
 	ClashAPIPort             int    `json:"clashApiPort"`             // default 9090
+	ClashAPISecret           string `json:"clashApiSecret,omitempty"` // auto-generated random bearer token
 	DashboardURL             string `json:"dashboardUrl"`             // default /ui/
 	LogLevel                 string `json:"logLevel"`                 // panic, warn, info, debug, trace
 	GlobalAllowInsecure      bool   `json:"globalAllowInsecure"`
@@ -217,6 +229,7 @@ func DefaultSettings() Settings {
 		ConnectionTestConcurrent: 5,
 		EnableClashAPI:           true,
 		ClashAPIPort:             9090,
+		ClashAPISecret:           generateRandomSecret(),
 		DashboardURL:             "/ui/",
 		LogLevel:                 "info",
 		GlobalAllowInsecure:      false,
@@ -371,6 +384,9 @@ func mergeDefaults(st State) State {
 	}
 	if st.Settings.ClashAPIPort <= 0 {
 		st.Settings.ClashAPIPort = 9090
+	}
+	if strings.TrimSpace(st.Settings.ClashAPISecret) == "" {
+		st.Settings.ClashAPISecret = generateRandomSecret()
 	}
 	if st.Settings.DashboardURL == "" {
 		st.Settings.DashboardURL = "/ui/"
@@ -588,6 +604,13 @@ func (s *Store) AddProfileTraffic(id int64, txDelta, rxDelta int64) {
 	}
 }
 
+// Flush persists current in-memory state (such as accumulated traffic counters) to disk.
+func (s *Store) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveLocked()
+}
+
 func (s *Store) ClearTraffic(groupID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -750,10 +773,23 @@ func (s *Store) ReplaceGroupProfiles(groupID int64, profiles []Profile, metaUpda
 		metaUpdate(&s.state.Groups[groupIdx])
 	}
 	s.state.Groups[groupIdx].LastUpdated = now
-	if s.state.SelectedProfile == 0 && len(profiles) > 0 {
-		s.state.SelectedProfile = profiles[0].ID
-	}
+	s.ensureValidSelectedProfileLocked()
 	return len(profiles), s.saveLocked()
+}
+
+func (s *Store) ensureValidSelectedProfileLocked() {
+	if s.state.SelectedProfile > 0 {
+		for _, p := range s.state.Profiles {
+			if p.ID == s.state.SelectedProfile {
+				return
+			}
+		}
+	}
+	if len(s.state.Profiles) > 0 {
+		s.state.SelectedProfile = s.state.Profiles[0].ID
+	} else {
+		s.state.SelectedProfile = 0
+	}
 }
 
 func (s *Store) DeleteGroup(id int64) error {
@@ -783,6 +819,7 @@ func (s *Store) DeleteGroup(id int64) error {
 	if s.state.SelectedGroup == id {
 		s.state.SelectedGroup = 0
 	}
+	s.ensureValidSelectedProfileLocked()
 	return s.saveLocked()
 }
 

@@ -107,8 +107,23 @@
     });
   }
 
+  function getApiToken() {
+    if (window.__NEKO_TOKEN__) return window.__NEKO_TOKEN__;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const t = sp.get("token");
+      if (t) {
+        window.__NEKO_TOKEN__ = t;
+        return t;
+      }
+    } catch {}
+    return "";
+  }
+
   async function api(path, method = "GET", body = null) {
-    const opts = { method, headers: {} };
+    const opts = { method, headers: {}, credentials: "same-origin" };
+    const tok = getApiToken();
+    if (tok) opts.headers["X-Neko-Token"] = tok;
     if (body !== null) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
@@ -511,6 +526,10 @@
         e.stopPropagation();
         const res = await api("/api/profiles/delete", "POST", { id: Number(btn.dataset.pid) });
         appState = res.state;
+        if (res.status) {
+          runtimeStatus = res.status;
+          renderStatusBar();
+        }
         renderCurrentPage();
         showSnackbar("节点已删除");
       };
@@ -578,6 +597,10 @@
         try {
           const res = await api("/api/groups/delete", "POST", { id: Number(b.dataset.gid) });
           appState = res.state;
+          if (res.status) {
+            runtimeStatus = res.status;
+            renderStatusBar();
+          }
           renderCurrentPage();
           showSnackbar("分组已删除");
         } catch (err) {
@@ -1249,7 +1272,8 @@
   // -------------------- PAGE 8: DASHBOARD (MetaCubeXD v1.276.0) --------------------
   function getDashboardFullUrl() {
     const port = appState?.settings?.clashApiPort || 9090;
-    return `${window.location.origin}/ui/#/setup?hostname=127.0.0.1&port=${port}&secret=`;
+    const secret = encodeURIComponent(appState?.settings?.clashApiSecret || runtimeStatus?.clashApiSecret || "");
+    return `${window.location.origin}/ui/#/setup?hostname=127.0.0.1&port=${port}&secret=${secret}`;
   }
 
   function renderDashboardPage(holder) {
@@ -1306,10 +1330,33 @@
           </div>
         </div>
       `;
-      $("btnExportBackup").onclick = () => {
-        const q = `profiles=${$("bkProfiles").checked ? 1 : 0}&rules=${$("bkRules").checked ? 1 : 0}&settings=${$("bkSettings").checked ? 1 : 0}`;
-        window.location.href = `/api/backup/export?${q}`;
-        showSnackbar("已开始下载备份文件");
+      $("btnExportBackup").onclick = async () => {
+        try {
+          const q = `profiles=${$("bkProfiles").checked ? 1 : 0}&rules=${$("bkRules").checked ? 1 : 0}&settings=${$("bkSettings").checked ? 1 : 0}`;
+          const headers = {};
+          const tok = getApiToken();
+          if (tok) headers["X-Neko-Token"] = tok;
+          const resp = await fetch(`/api/backup/export?${q}`, { headers, credentials: "same-origin" });
+          const text = await resp.text();
+          if (!resp.ok) throw new Error("导出备份失败");
+          const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+          const filename = `nekobox-mac-backup-${ts}.json`;
+          if (window.webkit?.messageHandlers?.nekoWindow) {
+            window.webkit.messageHandlers.nekoWindow.postMessage({ action: "saveFile", filename, content: text });
+            showSnackbar("请选择备份文件保存位置");
+          } else {
+            const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            showSnackbar("已导出备份文件");
+          }
+        } catch (err) {
+          showSnackbar(err.message || "导出失败");
+        }
       };
       $("btnImportBackup").onclick = () => $("bkFileInput").click();
       $("bkFileInput").onchange = async (e) => {
@@ -1317,7 +1364,10 @@
         if (!file) return;
         const text = await file.text();
         try {
-          const resp = await fetch("/api/backup/import", { method: "POST", body: text });
+          const headers = { "Content-Type": "application/json" };
+          const tok = getApiToken();
+          if (tok) headers["X-Neko-Token"] = tok;
+          const resp = await fetch("/api/backup/import", { method: "POST", headers, credentials: "same-origin", body: text });
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.error);
           appState = data.state;
@@ -1641,6 +1691,7 @@
             <button type="button" class="btn btn-tonal" data-copy-cmd="quarantine" style="padding:4px 10px;font-size:11.5px">${pickTitle("复制命令", "複製指令")}</button>
           </div>
           <div class="perm-actions-row">
+            ${perm.inReadOnlyVolume ? `<button type="button" class="btn btn-primary" id="btnInstallToAppsNow">${pickTitle("一键安装到「应用程序」并免风险启动", "一鍵安裝至「應用程式」並免風險啟動")}</button>` : ""}
             <button type="button" class="btn btn-ghost" data-open-pane="security">${pickTitle("打开隐私与安全性", "開啟隱私權與安全性")}</button>
           </div>
         </div>
@@ -1768,6 +1819,20 @@
       $("modalBody").querySelectorAll("[data-open-pane]").forEach((btn) => {
         btn.onclick = () => openMacSettingsPane(btn.dataset.openPane, pickTitle("已打开 macOS 系统设置", "已開啟 macOS 系統設定"));
       });
+
+      if ($("btnInstallToAppsNow")) {
+        $("btnInstallToAppsNow").onclick = async () => {
+          $("btnInstallToAppsNow").disabled = true;
+          $("btnInstallToAppsNow").textContent = pickTitle("正在免隔离安装并重启…", "正在免隔離安裝並重啟…");
+          try {
+            await api("/api/macos/install-app", "POST", { relaunch: true });
+            showSnackbar(pickTitle("已安装到 /Applications 并自动清除风险标记，正在切换启动…", "已安裝至 /Applications 並自動移除風險標記，正在切換啟動…"), 5000);
+          } catch (err) {
+            $("btnInstallToAppsNow").disabled = false;
+            showSnackbar(err.message, 4000);
+          }
+        };
+      }
 
       $("modalBody").querySelectorAll("[data-copy-cmd]").forEach((btn) => {
         btn.onclick = () => {
@@ -1960,6 +2025,8 @@
             if (p.params.security === "reality") p.params.pbk = $("edHost").value.trim();
             else p.params.host = $("edHost").value.trim();
             p.shareUri = "";
+            p.rawOutbound = null;
+            p.customOutbound = "";
           }
           try {
             const ep = existing ? "/api/profiles/update" : "/api/profiles/create";
@@ -2298,6 +2365,10 @@
   // BOOTSTRAP
   // =====================================================================
   async function init() {
+    getApiToken();
+    if (window.location.search.includes("token=")) {
+      try { window.history.replaceState(null, "", "/"); } catch {}
+    }
     hydrateIcons(document);
     bindLiquidMotion();
     bindMacWindowDrag();

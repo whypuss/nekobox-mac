@@ -154,9 +154,14 @@ jobs:
           - **\`Nekobox-Mac-${VER}-arm64.dmg\`**：Apple Silicon（M 系列芯片）独立版
           - **\`Nekobox-Mac-${VER}-x64.dmg\`**：Intel Mac（x64 / x86_64）独立版
 
-          ### 终端一键安装（装完直接双击打开，免 Gatekeeper 拦截）
+          ### 免风险提示打开与一键安装（无需进系统设置点「强制打开」）
+          - **方式 A（终端一键下载并免隔离安装，装完自动打开）**：
           \`\`\`bash
           curl -fsSL https://raw.githubusercontent.com/whypuss/nekobox-mac/main/scripts/install.sh | bash
+          \`\`\`
+          - **方式 B（已手动将 DMG 拖入「应用程序」后，一行命令解除拦截并启动）**：
+          \`\`\`bash
+          xattr -cr /Applications/Nekobox-Mac.app && open -a /Applications/Nekobox-Mac.app
           \`\`\`
 
           ### 内置核心版本

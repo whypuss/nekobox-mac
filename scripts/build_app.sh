@@ -66,11 +66,14 @@ cp "$BUILD_DIR/NekoBox.icns" "$APP_DIR/Contents/Resources/NekoBox.icns"
 cp "$ROOT_DIR/assets/yacd.zip" "$APP_DIR/Contents/Resources/yacd.zip"
 sed "s/@VERSION@/$VERSION/g" "$ROOT_DIR/macos/Info.plist.in" > "$APP_DIR/Contents/Info.plist"
 
+# Strip any host extended attributes (quarantine / provenance / FinderInfo) before signing
+xattr -cr "$APP_DIR" 2>/dev/null || true
+
 # 5. Sign inner binary first, then outer .app bundle (avoid deprecated --deep for Developer ID notarization)
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
-  echo "[Nekobox-Mac] Ad-hoc signing bundle (SIGN_IDENTITY=-)..."
-  codesign --force --sign - "$APP_DIR/Contents/MacOS/nekobox-core"
-  codesign --force --sign - "$APP_DIR"
+  echo "[Nekobox-Mac] Ad-hoc signing bundle with stable identifiers (SIGN_IDENTITY=-)..."
+  codesign --force --identifier "com.nekobox.mac.core" --sign - "$APP_DIR/Contents/MacOS/nekobox-core"
+  codesign --force --identifier "com.nekobox.mac" --sign - "$APP_DIR"
 else
   echo "[Nekobox-Mac] Developer ID signing bundle with Hardened Runtime ($SIGN_IDENTITY)..."
   codesign --force --options runtime --timestamp \

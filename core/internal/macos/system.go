@@ -4,16 +4,36 @@
 package macos
 
 import (
+	"bytes"
+	"encoding/xml"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const launchAgentLabel = "com.nekobox.mac"
+
+var cachedOSVersion = sync.OnceValue(func() string {
+	verOut, _ := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
+	ver := strings.TrimSpace(string(verOut))
+	if ver == "" {
+		return "macOS"
+	}
+	return "macOS " + ver
+})
+
+func xmlEscapeString(s string) string {
+	var buf bytes.Buffer
+	_ = xml.EscapeText(&buf, []byte(s))
+	return buf.String()
+}
 
 func launchAgentPath() string {
 	home, _ := os.UserHomeDir()
@@ -55,7 +75,7 @@ func SetLaunchAtLogin(enabled bool, appPath string) error {
 	<false/>
 </dict>
 </plist>
-`, launchAgentLabel, appPath)
+`, xmlEscapeString(launchAgentLabel), xmlEscapeString(appPath))
 	return os.WriteFile(plistPath, []byte(content), 0o644)
 }
 
@@ -80,17 +100,12 @@ type SystemInfo struct {
 }
 
 func GetSystemInfo() SystemInfo {
-	verOut, _ := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
-	ver := strings.TrimSpace(string(verOut))
-	if ver == "" {
-		ver = "macOS"
-	}
 	chipLabel := "Intel (x86_64)"
 	if runtime.GOARCH == "arm64" {
 		chipLabel = "Apple Silicon (arm64)"
 	}
 	return SystemInfo{
-		OSVersion: "macOS " + ver,
+		OSVersion: cachedOSVersion(),
 		Arch:      runtime.GOARCH,
 		ChipLabel: chipLabel,
 		IsRoot:    os.Geteuid() == 0,
@@ -98,9 +113,68 @@ func GetSystemInfo() SystemInfo {
 	}
 }
 
-// OpenURL opens a URL in the default macOS browser.
+// OpenURL opens a validated HTTP/HTTPS URL in the default macOS browser.
+// Arbitrary local paths, file:// URIs, and custom schemes are rejected.
 func OpenURL(rawURL string) error {
-	return exec.Command("/usr/bin/open", rawURL).Start()
+	trimmed := strings.TrimSpace(rawURL)
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Host == "" {
+		return errors.New("invalid URL")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("disallowed URL scheme %q (only http/https permitted)", u.Scheme)
+	}
+	return exec.Command("/usr/bin/open", "--", u.String()).Start()
+}
+
+// ClearQuarantine strips com.apple.quarantine recursively from a writable .app bundle
+// so once opened, macOS Gatekeeper never prompts or flags quarantine on subsequent launches.
+func ClearQuarantine(appPath string) bool {
+	if strings.TrimSpace(appPath) == "" {
+		return false
+	}
+	if strings.HasPrefix(appPath, "/Volumes/") || strings.Contains(appPath, "/AppTranslocation/") {
+		return false
+	}
+	if _, err := os.Stat(appPath); err != nil {
+		return false
+	}
+	return exec.Command("/usr/bin/xattr", "-dr", "com.apple.quarantine", appPath).Run() == nil
+}
+
+// InstallToApplications copies the running .app bundle (e.g. from a mounted DMG) into
+// /Applications/Nekobox-Mac.app without quarantine attributes so it launches cleanly.
+func InstallToApplications(srcAppPath string) (string, error) {
+	src := strings.TrimSpace(srcAppPath)
+	if src == "" || !strings.HasSuffix(src, ".app") {
+		return "", errors.New("未识别到有效的 .app 应用包路径")
+	}
+	if _, err := os.Stat(src); err != nil {
+		return "", fmt.Errorf("应用包不存在: %w", err)
+	}
+	dest := "/Applications/Nekobox-Mac.app"
+	if filepath.Clean(src) == dest {
+		_ = ClearQuarantine(dest)
+		return dest, nil
+	}
+	_ = os.RemoveAll(dest)
+	if out, err := exec.Command("/usr/bin/ditto", "--noqtn", src, dest).CombinedOutput(); err != nil {
+		// Fallback to ~/Applications if /Applications requires admin
+		home, _ := os.UserHomeDir()
+		if home == "" {
+			return "", fmt.Errorf("安装到 /Applications 失败: %s (%w)", strings.TrimSpace(string(out)), err)
+		}
+		userAppsDir := filepath.Join(home, "Applications")
+		_ = os.MkdirAll(userAppsDir, 0o755)
+		dest = filepath.Join(userAppsDir, "Nekobox-Mac.app")
+		_ = os.RemoveAll(dest)
+		if out2, err2 := exec.Command("/usr/bin/ditto", "--noqtn", src, dest).CombinedOutput(); err2 != nil {
+			return "", fmt.Errorf("复制应用包失败: %s (%w)", strings.TrimSpace(string(out2)), err2)
+		}
+	}
+	_ = exec.Command("/usr/bin/xattr", "-cr", dest).Run()
+	return dest, nil
 }
 
 // PermissionStatus reports real-time macOS Gatekeeper, install location,
@@ -154,7 +228,25 @@ func InspectPermissions(appPath, serviceMode string) PermissionStatus {
 	hasQuarantine := false
 	if _, err := os.Stat(appPath); err == nil {
 		if out, err := exec.Command("/usr/bin/xattr", "-p", "com.apple.quarantine", appPath).Output(); err == nil && len(strings.TrimSpace(string(out))) > 0 {
-			hasQuarantine = true
+			// If running from a writable path, self-heal by stripping quarantine immediately.
+			if !inRO && ClearQuarantine(appPath) {
+				if out2, err2 := exec.Command("/usr/bin/xattr", "-p", "com.apple.quarantine", appPath).Output(); err2 == nil && len(strings.TrimSpace(string(out2))) > 0 {
+					hasQuarantine = true
+				}
+			} else {
+				// Quarantine flag bit 0x0040 (e.g. 00c1 / 01c1) means user already approved in Gatekeeper.
+				qVal := strings.TrimSpace(string(out))
+				fields := strings.SplitN(qVal, ";", 2)
+				if len(fields) > 0 {
+					if flags, parseErr := strconv.ParseUint(fields[0], 16, 32); parseErr == nil && (flags&0x40) != 0 {
+						hasQuarantine = false
+					} else {
+						hasQuarantine = true
+					}
+				} else {
+					hasQuarantine = true
+				}
+			}
 		}
 	}
 

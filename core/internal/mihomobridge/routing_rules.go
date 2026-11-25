@@ -84,7 +84,7 @@ func normalizeRuleSource(id string) string {
 
 func normalizeRoutingMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case RoutingModeGFW:
+	case RoutingModeGFW, "gfw_only":
 		return RoutingModeGFW
 	default:
 		return RoutingModeBypassCN
