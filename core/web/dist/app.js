@@ -1426,7 +1426,7 @@
               <img class="about-logo" src="/assets/app-icon.png" alt="Nekobox-Mac" />
               <div>
                 <div style="font-size:20px;font-weight:800">Nekobox-Mac</div>
-                <span class="status-pill">${escapeHtml(v.app || "1.6.1-mac")} · macOS Universal (arm64 + x86_64)</span>
+                <span class="status-pill">${escapeHtml(v.app || "1.6.2-mac")} · macOS Universal (arm64 + x86_64)</span>
               </div>
             </div>
             <div class="core-pills">

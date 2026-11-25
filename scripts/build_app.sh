@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
 ARCH="${1:-universal}" # universal | arm64 | x64 (alias: amd64, x86_64)
-VERSION="${VERSION:-1.6.1}"
+VERSION="${VERSION:-1.6.2}"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 APP_DIR="$BUILD_DIR/Nekobox-Mac.app"
 ENTITLEMENTS="$ROOT_DIR/macos/entitlements.plist"
@@ -15,7 +15,7 @@ mkdir -p "$BUILD_DIR/shell"
 bash "$ROOT_DIR/scripts/make_icns.sh"
 
 # 2. Build Go tri-core binary (arm64 / amd64 / universal)
-bash "$ROOT_DIR/scripts/build_core.sh" "$ARCH"
+VERSION="$VERSION" bash "$ROOT_DIR/scripts/build_core.sh" "$ARCH"
 
 # 3. Compile native Cocoa shell (Objective-C, macOS 12.0+)
 SDK_PATH="$(xcrun --show-sdk-path)"

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CORE_DIR="$ROOT_DIR/core"
 BUILD_DIR="$ROOT_DIR/build/core"
 ARCH="${1:-universal}" # universal | arm64 | x64 (alias: amd64, x86_64)
+VERSION="${VERSION:-1.6.2}"
 
 mkdir -p "$BUILD_DIR"
 
@@ -12,7 +13,7 @@ cd "$CORE_DIR"
 SING_VER="$(go list -m -f '{{.Version}}' github.com/sagernet/sing-box)"
 MIHOMO_VER="$(go list -m -f '{{.Version}}' github.com/metacubex/mihomo)"
 TAGS="with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_v2ray_api"
-LDFLAGS="-s -w -checklinkname=0 -X github.com/sagernet/sing-box/constant.Version=$SING_VER -X github.com/metacubex/mihomo/constant.Version=$MIHOMO_VER"
+LDFLAGS="-s -w -checklinkname=0 -X nekobox-mac/internal/engine.AppVersion=${VERSION}-mac -X github.com/sagernet/sing-box/constant.Version=$SING_VER -X github.com/metacubex/mihomo/constant.Version=$MIHOMO_VER"
 
 build_one() {
   local goarch="$1"
