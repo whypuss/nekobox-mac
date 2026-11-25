@@ -111,8 +111,10 @@ type Settings struct {
 	AutoConnect           bool   `json:"autoConnect"`           // connect on launch
 	LaunchAtLogin         bool   `json:"launchAtLogin"`         // macOS LaunchAgent
 	HideDockIcon          bool   `json:"hideDockIcon"`          // menu bar only
-	AutoCheckUpdates      bool   `json:"autoCheckUpdates"`      // default true
-	IgnoredUpdateVersion  string `json:"ignoredUpdateVersion,omitempty"`
+	AutoCheckUpdates         bool   `json:"autoCheckUpdates"`         // default true
+	IgnoredUpdateVersion     string `json:"ignoredUpdateVersion,omitempty"`
+	PermissionGuideDismissed bool   `json:"permissionGuideDismissed"` // dismiss startup macOS permission guide when no blocking issue exists
+	PermissionGuideLang      string `json:"permissionGuideLang,omitempty"` // both, zh-CN, zh-TW
 
 	// Liquid Glass 3.0 Motion & Visual Intensity (0..5)
 	LiquidJellyLevel   int  `json:"liquidJellyLevel"`   // default 1
@@ -190,6 +192,8 @@ func DefaultSettings() Settings {
 		LaunchAtLogin:            false,
 		HideDockIcon:             false,
 		AutoCheckUpdates:         true,
+		PermissionGuideDismissed: false,
+		PermissionGuideLang:      "both",
 		LiquidJellyLevel:         1,
 		LiquidBlurLevel:          3,
 		LiquidAmbientLevel:       1,
@@ -337,6 +341,9 @@ func mergeDefaults(st State) State {
 	}
 	if st.Settings.NightMode == "" {
 		st.Settings.NightMode = "system"
+	}
+	if st.Settings.PermissionGuideLang == "" {
+		st.Settings.PermissionGuideLang = "both"
 	}
 	if st.Settings.ServiceMode == "" {
 		st.Settings.ServiceMode = "system_proxy"

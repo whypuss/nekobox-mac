@@ -1,6 +1,6 @@
 VERSION ?= 1.6.1
 
-.PHONY: all universal arm64 amd64 dmg dmg-all test clean run
+.PHONY: all universal arm64 x64 amd64 dmg dmg-all test clean run
 
 all: universal
 
@@ -10,15 +10,17 @@ universal:
 arm64:
 	VERSION=$(VERSION) bash scripts/build_app.sh arm64
 
-amd64:
-	VERSION=$(VERSION) bash scripts/build_app.sh amd64
+x64:
+	VERSION=$(VERSION) bash scripts/build_app.sh x64
+
+amd64: x64
 
 dmg:
 	VERSION=$(VERSION) bash scripts/package_dmg.sh universal
 
 dmg-all:
 	VERSION=$(VERSION) bash scripts/package_dmg.sh arm64
-	VERSION=$(VERSION) bash scripts/package_dmg.sh amd64
+	VERSION=$(VERSION) bash scripts/package_dmg.sh x64
 	VERSION=$(VERSION) bash scripts/package_dmg.sh universal
 
 test:

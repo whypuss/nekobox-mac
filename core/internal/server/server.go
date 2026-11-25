@@ -94,6 +94,8 @@ func (s *Server) registerRoutes() {
 
 	// App Proxy & Meta Smart Routing
 	s.mux.HandleFunc("/api/macos/apps", s.handleMacApps)
+	s.mux.HandleFunc("/api/macos/permissions", s.handleMacPermissions)
+	s.mux.HandleFunc("/api/macos/open-settings", s.handleMacOpenSettings)
 	s.mux.HandleFunc("/api/app-proxy", s.handleAppProxy)
 	s.mux.HandleFunc("/api/meta/status", s.handleMetaStatus)
 	s.mux.HandleFunc("/api/meta/refresh", s.handleMetaRefresh)
@@ -121,11 +123,13 @@ func (s *Server) registerRoutes() {
 }
 
 func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
+	st := s.store.Snapshot()
 	writeJSON(w, map[string]any{
-		"state":    s.store.Snapshot(),
-		"status":   s.engine.Status(),
-		"versions": s.engine.Versions(),
-		"logs":     s.engine.Logs(),
+		"state":       st,
+		"status":      s.engine.Status(),
+		"versions":    s.engine.Versions(),
+		"logs":        s.engine.Logs(),
+		"permissions": macos.InspectPermissions(s.appPath, st.Settings.ServiceMode),
 	})
 }
 
@@ -384,7 +388,9 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := configbuilder.BuildSingBoxConfig(s.store.Snapshot(), p, configbuilder.BuildOptions{
 		ForTest:   false,
 		EnableTUN: s.store.Snapshot().Settings.ServiceMode == "tun",
+		DataDir:   s.engine.DataDir(),
 		YacdDir:   s.engine.YacdDir(),
+		AssetsDir: s.engine.AssetsDir(),
 	})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -565,6 +571,23 @@ func (s *Server) handleReorderRules(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMacApps(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"apps": macos.ListInstalledApps()})
+}
+
+func (s *Server) handleMacPermissions(w http.ResponseWriter, r *http.Request) {
+	st := s.store.Snapshot()
+	writeJSON(w, macos.InspectPermissions(s.appPath, st.Settings.ServiceMode))
+}
+
+func (s *Server) handleMacOpenSettings(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Pane string `json:"pane"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := macos.OpenSystemSettings(body.Pane); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {

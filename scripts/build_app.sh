@@ -3,9 +3,11 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-ARCH="${1:-universal}" # universal | arm64 | amd64
+ARCH="${1:-universal}" # universal | arm64 | x64 (alias: amd64, x86_64)
 VERSION="${VERSION:-1.6.1}"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 APP_DIR="$BUILD_DIR/Nekobox-Mac.app"
+ENTITLEMENTS="$ROOT_DIR/macos/entitlements.plist"
 
 mkdir -p "$BUILD_DIR/shell"
 
@@ -28,7 +30,7 @@ compile_shell() {
 }
 
 case "$ARCH" in
-  amd64|x86_64)
+  x64|amd64|x86_64)
     compile_shell x86_64
     cp "$BUILD_DIR/shell/Nekobox-Mac-x86_64" "$BUILD_DIR/shell/Nekobox-Mac"
     ;;
@@ -64,6 +66,21 @@ cp "$BUILD_DIR/NekoBox.icns" "$APP_DIR/Contents/Resources/NekoBox.icns"
 cp "$ROOT_DIR/assets/yacd.zip" "$APP_DIR/Contents/Resources/yacd.zip"
 sed "s/@VERSION@/$VERSION/g" "$ROOT_DIR/macos/Info.plist.in" > "$APP_DIR/Contents/Info.plist"
 
-# 5. Ad-hoc sign bundle for clean local macOS execution on Intel & Apple Silicon
-codesign --force --deep --sign - "$APP_DIR"
+# 5. Sign inner binary first, then outer .app bundle (avoid deprecated --deep for Developer ID notarization)
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  echo "[Nekobox-Mac] Ad-hoc signing bundle (SIGN_IDENTITY=-)..."
+  codesign --force --sign - "$APP_DIR/Contents/MacOS/nekobox-core"
+  codesign --force --sign - "$APP_DIR"
+else
+  echo "[Nekobox-Mac] Developer ID signing bundle with Hardened Runtime ($SIGN_IDENTITY)..."
+  codesign --force --options runtime --timestamp \
+    --entitlements "$ENTITLEMENTS" \
+    --sign "$SIGN_IDENTITY" \
+    "$APP_DIR/Contents/MacOS/nekobox-core"
+  codesign --force --options runtime --timestamp \
+    --entitlements "$ENTITLEMENTS" \
+    --sign "$SIGN_IDENTITY" \
+    "$APP_DIR"
+fi
+
 echo "Built app bundle: $APP_DIR"

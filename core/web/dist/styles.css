@@ -1413,6 +1413,11 @@ html[data-ui="classic"] .popup-menu {
   animation: liquidDialogIn 0.24s cubic-bezier(0.22, 1.35, 0.36, 1);
 }
 
+.modal-dialog.modal-wide {
+  max-width: 760px;
+  max-height: 88vh;
+}
+
 html[data-ui="classic"] .modal-dialog {
   animation: none;
 }
@@ -1480,4 +1485,209 @@ html[data-ui="classic"] .modal-dialog {
 @keyframes glowFade {
   from { opacity: 0.9; width: 20px; height: 20px; }
   to { opacity: 0; width: 220px; height: 220px; }
+}
+
+/* macOS Bilingual (SC / TC) System Permission Guide */
+.perm-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.perm-lang-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--squircle-bg);
+  border: 1px solid var(--squircle-stroke);
+}
+
+.perm-lang-btn {
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.perm-lang-btn.active {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.perm-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.perm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.perm-badge-ok {
+  background: rgba(22, 163, 74, 0.14);
+  color: #15803d;
+  border-color: rgba(22, 163, 74, 0.25);
+}
+
+.perm-badge-warn {
+  background: rgba(217, 119, 6, 0.16);
+  color: #b45309;
+  border-color: rgba(217, 119, 6, 0.30);
+}
+
+.perm-badge-info {
+  background: rgba(var(--primary-rgb), 0.13);
+  color: var(--primary);
+  border-color: rgba(var(--primary-rgb), 0.26);
+}
+
+html[data-dark="true"] .perm-badge-ok { color: #4ade80; }
+html[data-dark="true"] .perm-badge-warn { color: #fbbf24; }
+
+.perm-card {
+  padding: 13px 15px;
+  border-radius: 18px;
+  background: var(--input-bg);
+  border: 1px solid var(--squircle-stroke);
+  margin-bottom: 10px;
+}
+
+.perm-card.perm-card-highlight {
+  border-color: rgba(217, 119, 6, 0.55);
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.20);
+}
+
+html[data-ui="classic"] .perm-card {
+  border-radius: 6px;
+}
+
+.perm-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.perm-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.perm-bilingual-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.perm-bilingual-grid.single-col {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 680px) {
+  .perm-bilingual-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.perm-lang-col {
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: var(--glass-fill);
+  border: 1px solid var(--divider);
+}
+
+.perm-lang-tag {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.12);
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+
+.perm-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.62;
+  color: var(--ink-primary);
+}
+
+.perm-steps li {
+  margin-bottom: 4px;
+}
+
+.perm-steps li:last-child {
+  margin-bottom: 0;
+}
+
+.perm-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  padding: 7px 10px;
+  border-radius: 11px;
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid var(--divider);
+}
+
+html[data-dark="true"] .perm-cmd-row {
+  background: rgba(0, 0, 0, 0.34);
+}
+
+.perm-cmd-code {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--ink-primary);
+  overflow-x: auto;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.perm-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.perm-actions-row .btn {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.perm-footer-check {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  cursor: pointer;
 }

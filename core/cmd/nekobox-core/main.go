@@ -29,9 +29,17 @@ func main() {
 	showVersion := flag.Bool("version", false, "print tri-core version info and exit")
 	flag.Parse()
 
+	if absDir, err := filepath.Abs(*dataDir); err == nil {
+		*dataDir = absDir
+	}
+
 	st, err := store.Open(*dataDir)
 	if err != nil {
 		log.Fatalf("open store: %v", err)
+	}
+	// Ensure working directory is always writable (Finder/LaunchServices defaults cwd to read-only "/").
+	if err := os.Chdir(*dataDir); err != nil {
+		log.Printf("warn: chdir to %s failed: %v", *dataDir, err)
 	}
 
 	resolvedYacd := *yacdZip

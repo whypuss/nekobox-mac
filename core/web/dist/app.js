@@ -85,6 +85,7 @@
   let appState = null;
   let runtimeStatus = null;
   let coreVersions = null;
+  let macPermissions = null;
   let logsList = [];
   let macAppsCache = null;
   let metaStatusCache = null;
@@ -1048,6 +1049,14 @@
               <div class="pref-text"><div class="pref-title">macOS 开机自启</div><div class="pref-summary">自动注册 LaunchAgent (~/Library/LaunchAgents/com.nekobox.mac.plist)</div></div>
               <label class="switch"><input type="checkbox" data-st-bool="launchAtLogin" ${st.launchAtLogin ? "checked" : ""}><span class="switch-track"></span></label>
             </div>
+            <div class="pref-row" id="rowPermGuideSettings" style="cursor:pointer">
+              <span class="pref-icon-badge" data-icon="info"></span>
+              <div class="pref-text">
+                <div class="pref-title">macOS 系统权限与打开设置教学（简体 / 繁體）</div>
+                <div class="pref-summary">查看 Gatekeeper 放行、系统代理、本地网络、TUN 管理员权限与开机自启设置步骤</div>
+              </div>
+              <button class="btn btn-tonal" type="button" id="btnOpenPermGuideSettings">打开教学</button>
+            </div>
           </div>
 
           <!-- Interface & Liquid Glass 3.0 Motion -->
@@ -1152,6 +1161,15 @@
     };
 
     $("rowThemePicker").onclick = openThemePickerDialog;
+    if ($("rowPermGuideSettings")) {
+      $("rowPermGuideSettings").onclick = () => openPermissionGuideDialog(true);
+    }
+    if ($("btnOpenPermGuideSettings")) {
+      $("btnOpenPermGuideSettings").onclick = (e) => {
+        e.stopPropagation();
+        openPermissionGuideDialog(true);
+      };
+    }
 
     holder.querySelectorAll("[data-st-bool]").forEach((inp) => {
       inp.onchange = async () => {
@@ -1165,6 +1183,14 @@
         appState.settings[sel.dataset.st] = sel.value;
         await persistSettings(false);
         showSnackbar("设置已保存");
+        if (sel.dataset.st === "serviceMode" && sel.value === "tun") {
+          try {
+            macPermissions = await api("/api/macos/permissions");
+            if (!macPermissions.canTun) {
+              openPermissionGuideDialog(true);
+            }
+          } catch {}
+        }
       };
     });
     holder.querySelectorAll("[data-st-num-sel]").forEach((sel) => {
@@ -1371,6 +1397,14 @@
               </div>
               <button class="btn btn-tonal" id="btnToggleSysProxy">${sysProxy.enabled ? "关闭系统代理" : "启用系统代理"}</button>
             </div>
+            <div class="pref-row" id="aboutPermGuideRow" style="cursor:pointer">
+              <span class="pref-icon-badge" data-icon="settings"></span>
+              <div class="pref-text">
+                <div class="pref-title">macOS 系统权限教学（简体中文 / 繁體中文）</div>
+                <div class="pref-summary">首次打开放行、网络代理、本地网络、TUN 虚拟网卡与登录项权限指引</div>
+              </div>
+              <button class="btn btn-tonal" type="button" id="btnAboutPermGuide">查看教学</button>
+            </div>
             <div class="pref-row" id="aboutUpstreamRow">
               <span class="pref-icon-badge" data-icon="info"></span>
               <div class="pref-text">
@@ -1406,6 +1440,11 @@
       } catch (err) {
         showSnackbar(err.message);
       }
+    };
+    $("aboutPermGuideRow").onclick = () => openPermissionGuideDialog(true);
+    $("btnAboutPermGuide").onclick = (e) => {
+      e.stopPropagation();
+      openPermissionGuideDialog(true);
     };
     $("aboutUpstreamRow").onclick = () => api("/api/tools/open-url", "POST", { url: "https://github.com/shixiaoheia/Nekobox-Next" });
   }
@@ -1469,11 +1508,18 @@
     ]);
   }
 
-  function openModal(title, bodyHtml, footerButtons = []) {
+  function openModal(title, bodyHtml, footerButtons = [], opts = {}) {
     $("modalTitle").textContent = title;
     $("modalBody").innerHTML = bodyHtml;
+    $("modalDialog").classList.toggle("modal-wide", Boolean(opts.wide));
     const footer = $("modalFooter");
     footer.innerHTML = "";
+    if (opts.footerLeadingHtml) {
+      const lead = document.createElement("div");
+      lead.className = "perm-footer-check";
+      lead.innerHTML = opts.footerLeadingHtml;
+      footer.appendChild(lead);
+    }
     footerButtons.forEach((b) => {
       const btn = document.createElement("button");
       btn.className = `btn ${b.cls || "btn-ghost"}`;
@@ -1487,7 +1533,255 @@
 
   function closeModal() {
     $("modalBackdrop").classList.add("hidden");
+    $("modalDialog").classList.remove("modal-wide");
   }
+
+  async function openMacSettingsPane(pane, okMsg) {
+    try {
+      await api("/api/macos/open-settings", "POST", { pane });
+      showSnackbar(okMsg || "已打开 macOS 系统设置");
+    } catch (err) {
+      showSnackbar(err.message);
+    }
+  }
+
+  async function openPermissionGuideDialog(refresh = false) {
+    if (refresh || !macPermissions) {
+      try {
+        macPermissions = await api("/api/macos/permissions");
+      } catch {
+        macPermissions = macPermissions || {};
+      }
+    }
+    const perm = macPermissions || {};
+    let langMode = appState?.settings?.permissionGuideLang || "both";
+    if (!["both", "zh-CN", "zh-TW"].includes(langMode)) langMode = "both";
+    let dontShowAgain = Boolean(appState?.settings?.permissionGuideDismissed);
+
+    const quarantineCmd = perm.quarantineCmd || 'xattr -dr com.apple.quarantine "/Applications/Nekobox-Mac.app"';
+    const tunCmd = perm.tunLaunchCmd || 'sudo "/Applications/Nekobox-Mac.app/Contents/MacOS/Nekobox-Mac"';
+    const blocking = new Set(perm.blockingIssues || []);
+    const netLabel = (perm.networkServices && perm.networkServices.length > 0)
+      ? perm.networkServices.join(", ")
+      : "Wi-Fi / Ethernet";
+
+    const renderLangColumns = (scSteps, tcSteps) => {
+      const showSC = langMode === "both" || langMode === "zh-CN";
+      const showTC = langMode === "both" || langMode === "zh-TW";
+      const cols = [];
+      if (showSC) {
+        cols.push(`
+          <div class="perm-lang-col">
+            <span class="perm-lang-tag">简体中文</span>
+            <ol class="perm-steps">${scSteps.map((s) => `<li>${s}</li>`).join("")}</ol>
+          </div>
+        `);
+      }
+      if (showTC) {
+        cols.push(`
+          <div class="perm-lang-col">
+            <span class="perm-lang-tag">繁體中文</span>
+            <ol class="perm-steps">${tcSteps.map((s) => `<li>${s}</li>`).join("")}</ol>
+          </div>
+        `);
+      }
+      return `<div class="perm-bilingual-grid ${langMode === "both" ? "" : "single-col"}">${cols.join("")}</div>`;
+    };
+
+    const pickTitle = (sc, tc) => (langMode === "zh-CN" ? sc : langMode === "zh-TW" ? tc : `${sc} / ${tc}`);
+
+    const renderDialog = () => {
+      const modalTitle = pickTitle("macOS 系统权限与设置教学", "macOS 系統權限與設定教學");
+      const statusPills = [
+        perm.inReadOnlyVolume
+          ? `<span class="perm-badge perm-badge-warn">⚠️ ${pickTitle("请拖入「应用程序」文件夹再运行", "請拖曳至「應用程式」資料夾再執行")}</span>`
+          : `<span class="perm-badge perm-badge-ok">✓ ${pickTitle("运行目录正常", "執行目錄正常")}</span>`,
+        perm.hasQuarantine
+          ? `<span class="perm-badge perm-badge-warn">⚠️ ${pickTitle("检测到系统隔离属性 (Quarantine)", "偵測到系統隔離屬性 (Quarantine)")}</span>`
+          : `<span class="perm-badge perm-badge-ok">✓ ${pickTitle("无隔离拦截标记", "無隔離攔截標記")}</span>`,
+        `<span class="perm-badge perm-badge-info">🌐 ${pickTitle("网络接口", "網路介面")}: ${escapeHtml(netLabel)}</span>`,
+        perm.canTun
+          ? `<span class="perm-badge perm-badge-ok">✓ ${pickTitle("已获 TUN 管理员权限", "已取得 TUN 管理員權限")}</span>`
+          : `<span class="perm-badge ${blocking.has("tun_requires_admin") ? "perm-badge-warn" : "perm-badge-info"}">${blocking.has("tun_requires_admin") ? "⚠️" : "ℹ"} ${pickTitle("系统代理免密可用 · TUN 需管理员", "系統代理免密可用 · TUN 需管理員")}</span>`,
+      ].join("");
+
+      const bodyHtml = `
+        <div class="perm-topbar">
+          <div class="pref-summary" style="margin:0">
+            ${escapeHtml(perm.osVersion || "macOS")} · ${escapeHtml(perm.chipLabel || "Universal")}
+          </div>
+          <div class="perm-lang-tabs" role="tablist">
+            <button type="button" class="perm-lang-btn ${langMode === "both" ? "active" : ""}" data-plang="both">简繁双语</button>
+            <button type="button" class="perm-lang-btn ${langMode === "zh-CN" ? "active" : ""}" data-plang="zh-CN">简体中文</button>
+            <button type="button" class="perm-lang-btn ${langMode === "zh-TW" ? "active" : ""}" data-plang="zh-TW">繁體中文</button>
+          </div>
+        </div>
+
+        <div class="perm-status-strip">${statusPills}</div>
+
+        <!-- 1. Gatekeeper / First Open -->
+        <div class="perm-card ${(blocking.has("readonly_volume") || blocking.has("quarantine")) ? "perm-card-highlight" : ""}">
+          <div class="perm-card-head">
+            <div class="perm-card-title">1. ${pickTitle("首次打开放行与位置检查（Gatekeeper 安全性）", "首次開啟放行與位置檢查（Gatekeeper 安全性）")}</div>
+          </div>
+          ${renderLangColumns(
+            [
+              `请先将 <b>Nekobox-Mac.app</b> 拖入 <b>「应用程序（Applications）」</b> 文件夹，避免直接在只读 DMG 镜像中运行。`,
+              `若弹窗提示「无法验证开发者 / 已损坏」，请点击下方按钮打开 <b>系统设置 → 隐私与安全性</b>，下滑至「安全性」点击 <b>「仍要打开」</b> 并输入密码或触控 ID。`,
+              `或打开「终端」执行下方命令一键解除隔离标记，之后即可直接双击打开（也可使用终端一键脚本安装免弹窗）。`,
+            ],
+            [
+              `請先將 <b>Nekobox-Mac.app</b> 拖曳至 <b>「應用程式（Applications）」</b> 資料夾，避免直接在唯讀 DMG 映像檔中執行。`,
+              `若跳出「無法驗證開發者 / 已損毀」提示，請點擊下方按鈕開啟 <b>系統設定 → 隱私權與安全性</b>，向下捲動至「安全性」點擊 <b>「強制打開（仍要開啟）」</b> 並驗證密碼或 Touch ID。`,
+              `或開啟「終端機」執行下方指令一鍵移除隔離標記，完成後即可直接點兩下開啟（亦可使用終端機一鍵腳本安裝免彈窗）。`,
+            ]
+          )}
+          <div class="perm-cmd-row">
+            <code class="perm-cmd-code">${escapeHtml(quarantineCmd)}</code>
+            <button type="button" class="btn btn-tonal" data-copy-cmd="quarantine" style="padding:4px 10px;font-size:11.5px">${pickTitle("复制命令", "複製指令")}</button>
+          </div>
+          <div class="perm-actions-row">
+            <button type="button" class="btn btn-ghost" data-open-pane="security">${pickTitle("打开隐私与安全性", "開啟隱私權與安全性")}</button>
+          </div>
+        </div>
+
+        <!-- 2. System Proxy & Local Network -->
+        <div class="perm-card">
+          <div class="perm-card-head">
+            <div class="perm-card-title">2. ${pickTitle("系统代理与本地网络权限（默认推荐）", "系統代理與區域網路權限（預設推薦）")}</div>
+          </div>
+          ${renderLangColumns(
+            [
+              `默认「<b>macOS 系统代理</b>」模式免管理员密码即可使用；首次连接若系统提示修改网络代理配置，请点击 <b>「允许」</b>。`,
+              `<b>macOS 15 Sequoia 及以上</b>：若连接后网页打不开或提示无权访问本地端口，前往 <b>系统设置 → 隐私与安全性 → 本地网络</b>，打开 <b>Nekobox-Mac</b> 开关。`,
+            ],
+            [
+              `預設「<b>macOS 系統代理</b>」模式免管理員密碼即可使用；首次連線若系統詢問修改網路代理設定，請點擊 <b>「允許」</b>。`,
+              `<b>macOS 15 Sequoia 及以上</b>：若連線後網頁無法開啟或提示無權存取本機埠，前往 <b>系統設定 → 隱私權與安全性 → 區域網路</b>，開啟 <b>Nekobox-Mac</b> 開關。`,
+            ]
+          )}
+          <div class="perm-actions-row">
+            <button type="button" class="btn btn-ghost" data-open-pane="network">${pickTitle("打开网络设置", "開啟網路設定")}</button>
+            <button type="button" class="btn btn-ghost" data-open-pane="local_network">${pickTitle("打开本地网络权限", "開啟區域網路權限")}</button>
+          </div>
+        </div>
+
+        <!-- 3. TUN Virtual NIC Admin Privilege -->
+        <div class="perm-card ${blocking.has("tun_requires_admin") ? "perm-card-highlight" : ""}">
+          <div class="perm-card-head">
+            <div class="perm-card-title">3. ${pickTitle("TUN 虚拟网卡模式（需管理员权限，按需开启）", "TUN 虛擬網卡模式（需管理員權限，按需開啟）")}</div>
+          </div>
+          ${renderLangColumns(
+            [
+              `日常浏览与主流应用使用「系统代理」即可；仅在需要接管全部 UDP / 终端 / 游戏流量时切换为 <b>TUN 虚拟网卡</b>。`,
+              `macOS 创建 <code>utun</code> 网卡与路由表需要 root 管理员权限；请在「终端」运行下方命令并输入开机密码启动即可启用 TUN。`,
+            ],
+            [
+              `日常瀏覽與主流應用程式使用「系統代理」即可；僅於需要接管全部 UDP／終端機／遊戲流量時切換為 <b>TUN 虛擬網卡</b>。`,
+              `macOS 建立 <code>utun</code> 網卡與路由表需要 root 管理員權限；請於「終端機」執行下方指令並輸入開機密碼啟動即可啟用 TUN。`,
+            ]
+          )}
+          <div class="perm-cmd-row">
+            <code class="perm-cmd-code">${escapeHtml(tunCmd)}</code>
+            <button type="button" class="btn btn-tonal" data-copy-cmd="tun" style="padding:4px 10px;font-size:11.5px">${pickTitle("复制命令", "複製指令")}</button>
+          </div>
+        </div>
+
+        <!-- 4. Launch at Login -->
+        <div class="perm-card" style="margin-bottom:2px">
+          <div class="perm-card-head">
+            <div class="perm-card-title">4. ${pickTitle("开机自启与后台项目权限（可选）", "開機自啟與背景項目權限（選用）")}</div>
+          </div>
+          ${renderLangColumns(
+            [
+              `在「设置」中开启「macOS 开机自启」后，macOS 13+ 会弹出后台项目通知。如需检查，前往 <b>系统设置 → 通用 → 登录项与扩展</b> 允许 <b>Nekobox-Mac</b>。`,
+            ],
+            [
+              `於「設定」中開啟「macOS 開機自啟」後，macOS 13+ 會彈出背景項目通知。如需檢查，前往 <b>系統設定 → 一般 → 登入項目與延伸功能</b> 允許 <b>Nekobox-Mac</b>。`,
+            ]
+          )}
+          <div class="perm-actions-row">
+            <button type="button" class="btn btn-ghost" data-open-pane="login_items">${pickTitle("打开登录项设置", "開啟登入項目設定")}</button>
+          </div>
+        </div>
+      `;
+
+      const footerCheckLabel = pickTitle("下次打开不再自动提示", "下次開啟不再自動提示");
+      const saveGuidePrefs = async () => {
+        if (!appState?.settings) return;
+        const chk = $("chkPermDismiss");
+        if (chk) dontShowAgain = chk.checked;
+        if (
+          appState.settings.permissionGuideDismissed !== dontShowAgain ||
+          appState.settings.permissionGuideLang !== langMode
+        ) {
+          appState.settings.permissionGuideDismissed = dontShowAgain;
+          appState.settings.permissionGuideLang = langMode;
+          try {
+            const res = await api("/api/settings", "POST", appState.settings);
+            appState = res.state;
+          } catch {}
+        }
+      };
+
+      openModal(
+        modalTitle,
+        bodyHtml,
+        [
+          {
+            label: pickTitle("重新检测", "重新偵測"),
+            cls: "btn-tonal",
+            action: async () => {
+              await saveGuidePrefs();
+              await openPermissionGuideDialog(true);
+              showSnackbar(pickTitle("已刷新 macOS 权限状态", "已重新整理 macOS 權限狀態"));
+            },
+          },
+          {
+            label: pickTitle("我已了解", "我已了解"),
+            cls: "btn-primary",
+            action: async () => {
+              await saveGuidePrefs();
+              closeModal();
+            },
+          },
+        ],
+        {
+          wide: true,
+          footerLeadingHtml: `<label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="chkPermDismiss" ${dontShowAgain ? "checked" : ""}> <span>${footerCheckLabel}</span></label>`,
+        }
+      );
+
+      $("modalBody").querySelectorAll("[data-plang]").forEach((btn) => {
+        btn.onclick = async () => {
+          const chk = $("chkPermDismiss");
+          if (chk) dontShowAgain = chk.checked;
+          langMode = btn.dataset.plang;
+          if (appState?.settings) {
+            appState.settings.permissionGuideLang = langMode;
+            api("/api/settings", "POST", appState.settings).then((r) => { appState = r.state; }).catch(() => {});
+          }
+          renderDialog();
+        };
+      });
+
+      $("modalBody").querySelectorAll("[data-open-pane]").forEach((btn) => {
+        btn.onclick = () => openMacSettingsPane(btn.dataset.openPane, pickTitle("已打开 macOS 系统设置", "已開啟 macOS 系統設定"));
+      });
+
+      $("modalBody").querySelectorAll("[data-copy-cmd]").forEach((btn) => {
+        btn.onclick = () => {
+          const cmd = btn.dataset.copyCmd === "tun" ? tunCmd : quarantineCmd;
+          navigator.clipboard?.writeText(cmd);
+          showSnackbar(pickTitle("已复制终端命令", "已複製終端機指令"));
+        };
+      });
+    };
+
+    renderDialog();
+  }
+
+  window.__nekoOpenPermissionGuide = () => openPermissionGuideDialog(true);
 
   async function importFromClipboard() {
     try {
@@ -1926,12 +2220,87 @@
     };
   }
 
+  function bindMacWindowDrag() {
+    const bridge = window.webkit?.messageHandlers?.nekoWindow;
+    if (!bridge) return;
+
+    const NO_DRAG_SELECTOR = [
+      "button", "a", "input", "textarea", "select", "option", "label", "summary", "code", "pre",
+      "[role='button']", "[contenteditable='true']",
+      ".icon-btn", ".nav-item", ".profile-card", ".tab-pill", ".group-tab", ".rule-card",
+      ".app-row", ".setting-row", ".pref-row", ".service-fab", ".stats-bar",
+      ".modal-dialog", ".popup-menu", ".log-viewer", ".log-line",
+      ".theme-swatch", ".chip", ".btn", ".switch", ".intensity-seg", ".app-action-btn",
+      ".perm-cmd-row", "iframe"
+    ].join(", ");
+
+    const TITLEBAR_SELECTOR = ".mac-drag-strip, .appbar, .toolbar, .nav-header";
+
+    function isOnScrollbar(target, clientX, clientY) {
+      let el = target instanceof Element ? target : target?.parentElement;
+      while (el && el !== document.documentElement) {
+        const style = window.getComputedStyle(el);
+        const canScrollY = (style.overflowY === "auto" || style.overflowY === "scroll") && el.scrollHeight > el.clientHeight;
+        const canScrollX = (style.overflowX === "auto" || style.overflowX === "scroll") && el.scrollWidth > el.clientWidth;
+        if (canScrollY || canScrollX) {
+          const rect = el.getBoundingClientRect();
+          if (canScrollY && rect.right - clientX <= 16) return true;
+          if (canScrollX && rect.bottom - clientY <= 16) return true;
+        }
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    let pendingDrag = null;
+
+    const cancelPending = () => {
+      pendingDrag = null;
+    };
+
+    document.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      const target = e.target instanceof Element ? e.target : null;
+      if (!target) return;
+      if (target.closest(NO_DRAG_SELECTOR)) return;
+      if (isOnScrollbar(target, e.clientX, e.clientY)) return;
+
+      const inTitlebar = Boolean(target.closest(TITLEBAR_SELECTOR));
+      if (e.detail === 2 && inTitlebar) {
+        e.preventDefault();
+        bridge.postMessage({ action: "titlebarDoubleClick" });
+        return;
+      }
+      if (e.detail !== 1) return;
+
+      pendingDrag = { x: e.clientX, y: e.clientY, threshold: inTitlebar ? 2 : 4 };
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!pendingDrag) return;
+      if ((e.buttons & 1) === 0) {
+        pendingDrag = null;
+        return;
+      }
+      const dx = Math.abs(e.clientX - pendingDrag.x);
+      const dy = Math.abs(e.clientY - pendingDrag.y);
+      if (dx >= pendingDrag.threshold || dy >= pendingDrag.threshold) {
+        pendingDrag = null;
+        bridge.postMessage({ action: "startDrag" });
+      }
+    });
+
+    window.addEventListener("mouseup", cancelPending);
+    window.addEventListener("blur", cancelPending);
+  }
+
   // =====================================================================
   // BOOTSTRAP
   // =====================================================================
   async function init() {
     hydrateIcons(document);
     bindLiquidMotion();
+    bindMacWindowDrag();
 
     // Drawer toggle (desktop collapse / narrow slide-over)
     $("btnToggleDrawer").onclick = () => {
@@ -2010,12 +2379,22 @@
     appState = boot.state;
     runtimeStatus = boot.status;
     coreVersions = boot.versions;
+    macPermissions = boot.permissions || null;
     logsList = boot.logs || [];
 
     applyThemeAndAppearance();
     renderStatusBar();
     navigateTo("configuration");
     connectEventStream();
+
+    // Auto-show bilingual (Simplified + Traditional Chinese) macOS permission guide on launch when needed
+    if (macPermissions) {
+      const hasBlocking = Array.isArray(macPermissions.blockingIssues) && macPermissions.blockingIssues.length > 0;
+      const shouldShow = hasBlocking || (macPermissions.needsGuide && !appState.settings.permissionGuideDismissed);
+      if (shouldShow) {
+        setTimeout(() => openPermissionGuideDialog(false), 180);
+      }
+    }
   }
 
   window.addEventListener("DOMContentLoaded", init);

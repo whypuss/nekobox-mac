@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CORE_DIR="$ROOT_DIR/core"
 BUILD_DIR="$ROOT_DIR/build/core"
-ARCH="${1:-universal}" # universal | arm64 | amd64
+ARCH="${1:-universal}" # universal | arm64 | x64 (alias: amd64, x86_64)
 
 mkdir -p "$BUILD_DIR"
 
@@ -23,7 +23,7 @@ build_one() {
 }
 
 case "$ARCH" in
-  amd64|x86_64)
+  x64|amd64|x86_64)
     build_one amd64
     cp "$BUILD_DIR/nekobox-core-amd64" "$BUILD_DIR/nekobox-core"
     ;;
@@ -40,7 +40,7 @@ case "$ARCH" in
       "$BUILD_DIR/nekobox-core-arm64"
     ;;
   *)
-    echo "Unknown arch: $ARCH (expected universal|arm64|amd64)" >&2
+    echo "Unknown arch: $ARCH (expected universal|arm64|x64)" >&2
     exit 1
     ;;
 esac

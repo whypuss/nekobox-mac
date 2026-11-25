@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -25,6 +26,7 @@ const (
 type BuildOptions struct {
 	ForTest   bool
 	EnableTUN bool
+	DataDir   string
 	YacdDir   string
 	AssetsDir string
 }
@@ -395,16 +397,27 @@ func BuildSingBoxConfig(st store.State, profile store.Profile, opts BuildOptions
 		"route":     routeObj,
 	}
 
-	if !opts.ForTest && settings.EnableClashAPI {
-		clashAPI := map[string]any{
-			"external_controller": fmt.Sprintf("127.0.0.1:%d", settings.ClashAPIPort),
+	if !opts.ForTest {
+		exp := map[string]any{}
+		cachePath := "cache.db"
+		if opts.DataDir != "" {
+			cachePath = filepath.Join(opts.DataDir, "cache.db")
 		}
-		if opts.YacdDir != "" {
-			clashAPI["external_ui"] = opts.YacdDir
+		exp["cache_file"] = map[string]any{
+			"enabled":      true,
+			"path":         cachePath,
+			"store_fakeip": useFakeDNS,
 		}
-		root["experimental"] = map[string]any{
-			"clash_api": clashAPI,
+		if settings.EnableClashAPI {
+			clashAPI := map[string]any{
+				"external_controller": fmt.Sprintf("127.0.0.1:%d", settings.ClashAPIPort),
+			}
+			if opts.YacdDir != "" {
+				clashAPI["external_ui"] = opts.YacdDir
+			}
+			exp["clash_api"] = clashAPI
 		}
+		root["experimental"] = exp
 	}
 
 	raw, err := json.MarshalIndent(root, "", "  ")

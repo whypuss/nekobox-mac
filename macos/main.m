@@ -90,9 +90,49 @@ static NSImage *createCatInBoxTrayIcon(void) {
     return img;
 }
 
-@interface NekoAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate>
+static void performTitlebarDoubleClick(NSWindow *window) {
+    if (!window) return;
+    NSString *action = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleActionOnDoubleClick"];
+    if ([action isEqualToString:@"Minimize"]) {
+        [window performMiniaturize:nil];
+    } else if (![action isEqualToString:@"None"]) {
+        [window performZoom:nil];
+    }
+}
+
+@interface NekoDragView : NSView
+@end
+
+@implementation NekoDragView
+
+- (BOOL)mouseDownCanMoveWindow {
+    return YES;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    if (event.clickCount == 2) {
+        performTitlebarDoubleClick(self.window);
+        return;
+    }
+    [self.window performWindowDragWithEvent:event];
+}
+
+@end
+
+@interface NekoWebView : WKWebView
+@end
+
+@implementation NekoWebView
+
+- (BOOL)mouseDownCanMoveWindow {
+    return NO;
+}
+
+@end
+
+@interface NekoAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler>
 @property (strong) NSWindow *window;
-@property (strong) WKWebView *webView;
+@property (strong) NekoWebView *webView;
 @property (strong) NSStatusItem *statusItem;
 @property (strong) NSMenuItem *statusTitleItem;
 @property (strong) NSMenuItem *toggleConnectItem;
@@ -101,6 +141,9 @@ static NSImage *createCatInBoxTrayIcon(void) {
 @property (assign) BOOL isConnected;
 @property (copy) NSString *activeProfileName;
 @property (strong) NSTimer *pollTimer;
+@property (strong) id mouseEventMonitor;
+@property (strong) NSEvent *lastWindowMouseDown;
+@property (strong) NSEvent *lastWindowMouseDragged;
 @end
 
 @implementation NekoAppDelegate
@@ -112,6 +155,7 @@ static NSImage *createCatInBoxTrayIcon(void) {
     NSMenuItem *appItem = [[NSMenuItem alloc] init];
     NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"Nekobox-Mac"];
     [appMenu addItemWithTitle:@"关于 Nekobox-Mac" action:@selector(showMainWindow:) keyEquivalent:@""];
+    [appMenu addItemWithTitle:@"macOS 系统权限教学（简 / 繁）" action:@selector(openPermissionGuide:) keyEquivalent:@""];
     [appMenu addItem:[NSMenuItem separatorItem]];
     [appMenu addItemWithTitle:@"隐藏 Nekobox-Mac" action:@selector(hide:) keyEquivalent:@"h"];
     [appMenu addItem:[NSMenuItem separatorItem]];
@@ -167,6 +211,10 @@ static NSImage *createCatInBoxTrayIcon(void) {
     dashItem.target = self;
     [menu addItem:dashItem];
 
+    NSMenuItem *permItem = [[NSMenuItem alloc] initWithTitle:@"macOS 系统权限教学（简 / 繁）" action:@selector(openPermissionGuide:) keyEquivalent:@""];
+    permItem.target = self;
+    [menu addItem:permItem];
+
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"退出 Nekobox-Mac" action:@selector(terminate:) keyEquivalent:@"q"];
     [menu addItem:quitItem];
@@ -190,10 +238,16 @@ static NSImage *createCatInBoxTrayIcon(void) {
         return;
     }
 
+    NSString *appSupport = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *dataDir = appSupport ? [appSupport stringByAppendingPathComponent:@"Nekobox-Mac"] : [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Nekobox-Mac"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dataDir withIntermediateDirectories:YES attributes:nil error:nil];
+
     NSTask *task = [[NSTask alloc] init];
     task.launchPath = coreBin;
+    task.currentDirectoryPath = dataDir;
     NSMutableArray *args = [NSMutableArray arrayWithArray:@[
         @"--listen", [NSString stringWithFormat:@"127.0.0.1:%d", self.corePort],
+        @"--data-dir", dataDir,
         @"--app-path", bundlePath
     ]];
     if ([[NSFileManager defaultManager] fileExistsAtPath:yacdZip]) {
@@ -239,21 +293,80 @@ static NSImage *createCatInBoxTrayIcon(void) {
     self.window.title = @"Nekobox-Mac";
     self.window.titleVisibility = NSWindowTitleHidden;
     self.window.titlebarAppearsTransparent = YES;
+    self.window.movableByWindowBackground = YES;
     self.window.minSize = NSMakeSize(420, 560);
     self.window.delegate = self;
     [self.window center];
 
     WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
     [cfg.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
-    self.webView = [[WKWebView alloc] initWithFrame:frame configuration:cfg];
+    [cfg.userContentController addScriptMessageHandler:self name:@"nekoWindow"];
+
+    NSView *container = [[NSView alloc] initWithFrame:frame];
+    container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
+    self.webView = [[NekoWebView alloc] initWithFrame:container.bounds configuration:cfg];
     self.webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.webView.navigationDelegate = self;
     self.webView.UIDelegate = self;
     [self.webView setValue:@NO forKey:@"drawsBackground"];
+    [container addSubview:self.webView];
 
-    self.window.contentView = self.webView;
+    // Native macOS top titlebar drag strip (right of traffic lights) for zero-latency window drag
+    CGFloat topBarH = 28.0;
+    CGFloat trafficSafeX = 76.0;
+    NekoDragView *dragStrip = [[NekoDragView alloc] initWithFrame:NSMakeRect(trafficSafeX,
+                                                                             NSHeight(container.bounds) - topBarH,
+                                                                             NSWidth(container.bounds) - trafficSafeX,
+                                                                             topBarH)];
+    dragStrip.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+    [container addSubview:dragStrip positioned:NSWindowAbove relativeTo:self.webView];
+
+    self.window.contentView = container;
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+
+    // Capture mouse events before WKWebView's internal subviews consume them
+    __weak typeof(self) weakSelf = self;
+    self.mouseEventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseDown | NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp)
+                                                                   handler:^NSEvent *(NSEvent *event) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf && event.window == strongSelf.window) {
+            if (event.type == NSEventTypeLeftMouseDown) {
+                strongSelf.lastWindowMouseDown = event;
+                strongSelf.lastWindowMouseDragged = nil;
+            } else if (event.type == NSEventTypeLeftMouseDragged) {
+                strongSelf.lastWindowMouseDragged = event;
+            } else if (event.type == NSEventTypeLeftMouseUp) {
+                strongSelf.lastWindowMouseDown = nil;
+                strongSelf.lastWindowMouseDragged = nil;
+            }
+        }
+        return event;
+    }];
+}
+
+- (void)userContentController:(WKUserContentController *)userContentController
+      didReceiveScriptMessage:(WKScriptMessage *)message {
+    if (![message.name isEqualToString:@"nekoWindow"]) return;
+    NSDictionary *body = [message.body isKindOfClass:[NSDictionary class]] ? message.body : nil;
+    NSString *action = body[@"action"];
+    if ([action isEqualToString:@"startDrag"]) {
+        if (([NSEvent pressedMouseButtons] & 1) == 0) return;
+        NSEvent *dragEvent = self.lastWindowMouseDown ?: self.lastWindowMouseDragged;
+        if (!dragEvent && NSApp.currentEvent &&
+            (NSApp.currentEvent.type == NSEventTypeLeftMouseDown || NSApp.currentEvent.type == NSEventTypeLeftMouseDragged) &&
+            NSApp.currentEvent.window == self.window) {
+            dragEvent = NSApp.currentEvent;
+        }
+        if (dragEvent) {
+            [self.window performWindowDragWithEvent:dragEvent];
+            self.lastWindowMouseDown = nil;
+            self.lastWindowMouseDragged = nil;
+        }
+    } else if ([action isEqualToString:@"titlebarDoubleClick"]) {
+        performTitlebarDoubleClick(self.window);
+    }
 }
 
 - (void)postAPI:(NSString *)path body:(NSString *)jsonBody completion:(void (^)(void))done {
@@ -310,6 +423,11 @@ static NSImage *createCatInBoxTrayIcon(void) {
     [[NSWorkspace sharedWorkspace] openURL:url];
 }
 
+- (void)openPermissionGuide:(id)sender {
+    [self showMainWindow:nil];
+    [self.webView evaluateJavaScript:@"window.__nekoOpenPermissionGuide && window.__nekoOpenPermissionGuide();" completionHandler:nil];
+}
+
 - (void)reloadWebView:(id)sender {
     [self.webView reload];
 }
@@ -354,6 +472,11 @@ static NSImage *createCatInBoxTrayIcon(void) {
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
     [self.pollTimer invalidate];
+    if (self.mouseEventMonitor) {
+        [NSEvent removeMonitor:self.mouseEventMonitor];
+        self.mouseEventMonitor = nil;
+    }
+    [self.webView.configuration.userContentController removeScriptMessageHandlerForName:@"nekoWindow"];
     if (self.coreTask && self.coreTask.isRunning) {
         pid_t pid = self.coreTask.processIdentifier;
         kill(pid, SIGTERM);

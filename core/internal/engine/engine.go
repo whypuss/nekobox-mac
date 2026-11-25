@@ -177,6 +177,14 @@ func New(st *store.Store, dataDir, bundledYacdZip string) (*Engine, error) {
 	return e, nil
 }
 
+func (e *Engine) DataDir() string {
+	return e.dataDir
+}
+
+func (e *Engine) AssetsDir() string {
+	return e.assetsDir
+}
+
 func (e *Engine) YacdDir() string {
 	return e.yacdDir
 }
@@ -390,6 +398,7 @@ func (e *Engine) Start(profileID int64) (err error) {
 	cfgStr, err := configbuilder.BuildSingBoxConfig(st, target, configbuilder.BuildOptions{
 		ForTest:   false,
 		EnableTUN: enableTUN,
+		DataDir:   e.dataDir,
 		YacdDir:   e.yacdDir,
 		AssetsDir: e.assetsDir,
 	})
@@ -893,6 +902,36 @@ func (e *Engine) createBox(cfgStr string, forTest bool) (*box.Box, context.Cance
 			options.Experimental.CacheFile = nil
 			options.Experimental.ClashAPI = nil
 			options.Experimental.V2RayAPI = nil
+		}
+	} else {
+		// Passing PlatformLogWriter != nil causes sing-box to always initialize cache-file.
+		// Resolve cache.db (and any relative ExternalUI path) inside writable e.dataDir so
+		// launching the .app bundle from Finder/LaunchServices (cwd="/") never hits EROFS.
+		if options.Experimental == nil {
+			options.Experimental = &option.ExperimentalOptions{}
+		}
+		if options.Experimental.CacheFile == nil {
+			options.Experimental.CacheFile = &option.CacheFileOptions{Enabled: true}
+		}
+		cachePath := strings.TrimSpace(options.Experimental.CacheFile.Path)
+		if cachePath == "" {
+			cachePath = filepath.Join(e.dataDir, "cache.db")
+		} else if !filepath.IsAbs(cachePath) {
+			cachePath = filepath.Join(e.dataDir, cachePath)
+		}
+		if mkErr := os.MkdirAll(filepath.Dir(cachePath), 0o755); mkErr != nil {
+			fallback := filepath.Join(e.dataDir, "cache.db")
+			e.appendLog("warn", fmt.Sprintf("cache_file 目录不可写 (%s)，已自动回退至 %s", cachePath, fallback))
+			cachePath = fallback
+			_ = os.MkdirAll(filepath.Dir(cachePath), 0o755)
+		}
+		options.Experimental.CacheFile.Path = cachePath
+
+		if options.Experimental.ClashAPI != nil {
+			uiPath := strings.TrimSpace(options.Experimental.ClashAPI.ExternalUI)
+			if uiPath != "" && !filepath.IsAbs(uiPath) {
+				options.Experimental.ClashAPI.ExternalUI = filepath.Join(e.dataDir, uiPath)
+			}
 		}
 	}
 

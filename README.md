@@ -14,9 +14,19 @@
 
 | 芯片平台 | 架构标识 | 安装包说明 |
 |---|---|---|
-| Apple Silicon (M1/M2/M3/M4) + Intel 通用 | `universal` (`arm64` + `x86_64`) | `Nekobox-Mac-*-universal.dmg`（推荐，全系 Mac 通用原生） |
+| Apple Silicon (M1/M2/M3/M4) + Intel x64 通用 | `universal` (`arm64` + `x86_64`) | `Nekobox-Mac-*-universal.dmg`（推荐，全系 Mac 通用原生） |
 | Apple Silicon 独立版 | `arm64` | `Nekobox-Mac-*-arm64.dmg`（仅 M 系列芯片） |
-| Intel Mac 独立版 | `amd64` (`x86_64`) | `Nekobox-Mac-*-amd64.dmg`（仅 Intel 芯片） |
+| Intel Mac 独立版 | `x64` (`x86_64`) | `Nekobox-Mac-*-x64.dmg`（仅 Intel x64 芯片） |
+
+### 终端一键安装（推荐，装完可直接双击打开）
+
+未配置 Apple Developer 公证证书时，通过浏览器下载的 `.dmg` 会被 macOS 附加隔离标记而弹窗拦截。使用终端一键脚本安装（自动校验 SHA-256 并安装到 `/Applications/Nekobox-Mac.app`）后可直接双击打开：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/whypuss/nekobox-mac/main/scripts/install.sh | bash
+```
+
+若要使浏览器直接下载的 `.dmg` 在任意 Mac 上实现零弹窗双击直接打开，需配置 Apple Developer ID Application 证书与 Apple 公证（Notarization）。本仓库构建脚本与 GitHub Actions 已原生支持：配置 `SIGN_IDENTITY`、`NOTARY_APPLE_ID`、`NOTARY_TEAM_ID`、`NOTARY_PASSWORD`（或 CI Secrets `APPLE_CERT_P12_BASE64`、`APPLE_CERT_PASSWORD`、`APPLE_SIGN_IDENTITY`、`APPLE_NOTARY_ID`、`APPLE_TEAM_ID`、`APPLE_NOTARY_PASSWORD`）即可自动完成 Hardened Runtime 签名、公证与票据装订（Staple）。
 
 ## 核心特性
 
@@ -43,7 +53,7 @@
 # 编译 Universal 通用版 .app（同时包含 arm64 与 x86_64）
 make universal
 
-# 打包 Universal / arm64 / amd64 三份 DMG 安装镜像
+# 打包 Universal / arm64 / x64 三份 DMG 安装镜像
 make dmg-all
 
 # 运行三内核单元测试

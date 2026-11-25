@@ -69,14 +69,42 @@ jobs:
       - name: Run tri-core unit tests
         run: make test
 
-      - name: Build & package macOS DMGs (universal / arm64 / amd64)
+      - name: Import Apple Developer ID certificate (optional)
+        if: ${{ secrets.APPLE_CERT_P12_BASE64 != '' && secrets.APPLE_SIGN_IDENTITY != '' }}
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/nekobox-signing.keychain-db"
+          KEYCHAIN_PASS="$(uuidgen)"
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          echo "$APPLE_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          rm -f "$CERT_PATH"
+          echo "NEKO_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Build & package macOS DMGs (universal / arm64 / x64)
         env:
           VERSION: ${{ steps.meta.outputs.version }}
+          SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY || '-' }}
+          NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
         run: |
+          rm -f dist/*.dmg dist/SHA256SUMS.txt
           make dmg-all
           cd dist
           shasum -a 256 *.dmg > SHA256SUMS.txt
           cat SHA256SUMS.txt
+
+      - name: Cleanup temporary signing keychain
+        if: always() && env.NEKO_KEYCHAIN_PATH != ''
+        run: security delete-keychain "$NEKO_KEYCHAIN_PATH" || true
 
       - name: Verify Universal & single-arch binaries
         run: |
@@ -96,7 +124,7 @@ jobs:
           echo "=== Verify DMG artifacts ==="
           test -f "dist/Nekobox-Mac-${{ steps.meta.outputs.version }}-universal.dmg"
           test -f "dist/Nekobox-Mac-${{ steps.meta.outputs.version }}-arm64.dmg"
-          test -f "dist/Nekobox-Mac-${{ steps.meta.outputs.version }}-amd64.dmg"
+          test -f "dist/Nekobox-Mac-${{ steps.meta.outputs.version }}-x64.dmg"
           ls -lh dist/
 
       - name: Upload macOS build artifacts
@@ -122,9 +150,14 @@ jobs:
           基于 [shixiaoheia/Nekobox-Next](https://github.com/shixiaoheia/Nekobox-Next) 移植的纯 macOS 原生三内核代理客户端，1:1 复刻 Liquid Glass 3.0 液态玻璃与怀旧双界面（含 21 套主题色）。
 
           ### 下载选择
-          - **\`Nekobox-Mac-${VER}-universal.dmg\`**（推荐）：Apple Silicon（M1/M2/M3/M4）+ Intel 通用原生版
+          - **\`Nekobox-Mac-${VER}-universal.dmg\`**（推荐）：Apple Silicon（M1/M2/M3/M4）+ Intel x64 通用原生版
           - **\`Nekobox-Mac-${VER}-arm64.dmg\`**：Apple Silicon（M 系列芯片）独立版
-          - **\`Nekobox-Mac-${VER}-amd64.dmg\`**：Intel Mac（x86_64）独立版
+          - **\`Nekobox-Mac-${VER}-x64.dmg\`**：Intel Mac（x64 / x86_64）独立版
+
+          ### 终端一键安装（装完直接双击打开，免 Gatekeeper 拦截）
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/whypuss/nekobox-mac/main/scripts/install.sh | bash
+          \`\`\`
 
           ### 内置核心版本
           \`\`\`
@@ -138,6 +171,7 @@ jobs:
           EOF
 
           if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete-asset "$TAG" "Nekobox-Mac-${VER}-amd64.dmg" -y 2>/dev/null || true
             gh release upload "$TAG" dist/*.dmg dist/SHA256SUMS.txt --clobber
             gh release edit "$TAG" --title "Nekobox-Mac ${TAG}" --notes-file "$NOTES_FILE"
           else
