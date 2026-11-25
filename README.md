@@ -50,7 +50,7 @@ make dmg-all
 make test
 ```
 
-GitHub Actions（`.github/workflows/release-macos.yml`）仅运行于 `macos-14` runner，推送 `main` 时自动执行单元测试并构建三架构 DMG Artifacts；推送 `v*` 标签时自动校验并发布 GitHub Release。
+GitHub Actions（`.github/workflows/release-macos.yml`）仅运行于 `macos-latest` runner，推送 `main` 时自动执行单元测试并构建三架构 DMG Artifacts；推送 `v*` 标签时自动校验并发布 GitHub Release。
 
 ## 开源协议
 

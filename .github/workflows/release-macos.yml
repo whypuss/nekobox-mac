@@ -31,7 +31,7 @@ concurrency:
 jobs:
   build-macos:
     name: macOS Universal + arm64 + x86_64
-    runs-on: macos-14
+    runs-on: macos-latest
     env:
       GOTOOLCHAIN: auto
     steps:
