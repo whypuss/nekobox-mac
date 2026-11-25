@@ -3,6 +3,7 @@ package server
 
 import (
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -30,6 +32,7 @@ import (
 type Server struct {
 	store    *store.Store
 	engine   *engine.Engine
+	updater  *macos.Updater
 	appPath  string
 	apiToken string
 	mux      *http.ServeMux
@@ -39,6 +42,7 @@ func New(st *store.Store, eng *engine.Engine, appPath string, apiToken string) *
 	s := &Server{
 		store:    st,
 		engine:   eng,
+		updater:  macos.NewUpdater(macos.DefaultUpdateRepo),
 		appPath:  appPath,
 		apiToken: strings.TrimSpace(apiToken),
 		mux:      http.NewServeMux(),
@@ -161,8 +165,15 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/groups/upsert", s.handleUpsertGroup)
 	s.mux.HandleFunc("/api/groups/delete", s.handleDeleteGroup)
 	s.mux.HandleFunc("/api/groups/select", s.handleSelectGroup)
+	s.mux.HandleFunc("/api/groups/share", s.handleShareGroup)
 	s.mux.HandleFunc("/api/groups/update-sub", s.handleUpdateSub)
 	s.mux.HandleFunc("/api/groups/update-all", s.handleUpdateAllSubs)
+
+	// In-App Updater (GitHub Releases check + atomic in-place .app replacement)
+	s.mux.HandleFunc("/api/update/check", s.handleUpdateCheck)
+	s.mux.HandleFunc("/api/update/status", s.handleUpdateStatus)
+	s.mux.HandleFunc("/api/update/apply", s.handleUpdateApply)
+	s.mux.HandleFunc("/api/update/ignore", s.handleUpdateIgnore)
 
 	// Routing Rules
 	s.mux.HandleFunc("/api/rules/upsert", s.handleUpsertRule)
@@ -581,6 +592,133 @@ func (s *Server) handleSelectGroup(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	_ = s.store.SetSelectedGroup(body.ID)
 	writeJSON(w, map[string]any{"state": s.store.Snapshot()})
+}
+
+func (s *Server) handleShareGroup(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("id")), 10, 64)
+	st := s.store.Snapshot()
+
+	groupName := "全部分组"
+	isSub := false
+	subURL := ""
+	if id > 0 {
+		found := false
+		for _, g := range st.Groups {
+			if g.ID == id {
+				groupName = g.Name
+				subURL = strings.TrimSpace(g.SubscriptionURL)
+				isSub = g.Type == "subscription" || subURL != ""
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("分组不存在"))
+			return
+		}
+	}
+
+	var members []store.Profile
+	for _, p := range st.Profiles {
+		if id == 0 || p.GroupID == id {
+			members = append(members, p)
+		}
+	}
+	sort.SliceStable(members, func(i, j int) bool {
+		if members[i].Order != members[j].Order {
+			return members[i].Order < members[j].Order
+		}
+		return members[i].ID < members[j].ID
+	})
+
+	uris := make([]string, 0, len(members))
+	skipped := 0
+	for _, p := range members {
+		uri := strings.TrimSpace(parser.ExportShareURI(p))
+		// Skip multi-line full JSON configs when building line-based node share lists
+		if uri == "" || strings.Contains(uri, "\n") {
+			skipped++
+			continue
+		}
+		uris = append(uris, uri)
+	}
+
+	rawText := strings.Join(uris, "\n")
+	base64Text := ""
+	if rawText != "" {
+		base64Text = base64.StdEncoding.EncodeToString([]byte(rawText))
+	}
+
+	writeJSON(w, map[string]any{
+		"groupId":         id,
+		"groupName":       groupName,
+		"isSubscription":  isSub,
+		"subscriptionUrl": subURL,
+		"total":           len(members),
+		"count":           len(uris),
+		"skipped":         skipped,
+		"uris":            uris,
+		"rawText":         rawText,
+		"base64Text":      base64Text,
+	})
+}
+
+func (s *Server) activeProxyPort() int {
+	st := s.engine.Status()
+	if st.State == engine.StateConnected && st.MixedPort > 0 {
+		return st.MixedPort
+	}
+	return 0
+}
+
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	info, err := s.updater.Check(r.Context(), engine.AppVersion, s.appPath, s.activeProxyPort())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, info)
+}
+
+func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.updater.Status())
+}
+
+func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	var req macos.ApplyRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.DownloadURL != "" && !macos.IsAllowedUpdateURL(req.DownloadURL) {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("非法的更新下载地址，仅允许 GitHub 官方发布源"))
+		return
+	}
+	err := s.updater.StartApply(req, engine.AppVersion, s.appPath, s.activeProxyPort(), func() {
+		_ = s.engine.Stop()
+	})
+	if err != nil {
+		writeErr(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "status": s.updater.Status()})
+}
+
+func (s *Server) handleUpdateIgnore(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	st := s.store.Snapshot().Settings
+	st.IgnoredUpdateVersion = macos.NormalizeVersion(body.Version)
+	saved, err := s.store.UpdateSettings(st)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, map[string]any{"settings": saved, "state": s.store.Snapshot()})
 }
 
 func (s *Server) handleUpdateSub(w http.ResponseWriter, r *http.Request) {

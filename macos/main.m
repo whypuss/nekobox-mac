@@ -184,6 +184,7 @@ static void performTitlebarDoubleClick(NSWindow *window) {
     NSMenuItem *appItem = [[NSMenuItem alloc] init];
     NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"Nekobox-Mac"];
     [appMenu addItemWithTitle:@"关于 Nekobox-Mac" action:@selector(showMainWindow:) keyEquivalent:@""];
+    [appMenu addItemWithTitle:@"检查软件更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
     [appMenu addItemWithTitle:@"macOS 系统权限教学（简 / 繁）" action:@selector(openPermissionGuide:) keyEquivalent:@""];
     [appMenu addItem:[NSMenuItem separatorItem]];
     [appMenu addItemWithTitle:@"隐藏 Nekobox-Mac" action:@selector(hide:) keyEquivalent:@"h"];
@@ -243,6 +244,10 @@ static void performTitlebarDoubleClick(NSWindow *window) {
     NSMenuItem *permItem = [[NSMenuItem alloc] initWithTitle:@"macOS 系统权限教学（简 / 繁）" action:@selector(openPermissionGuide:) keyEquivalent:@""];
     permItem.target = self;
     [menu addItem:permItem];
+
+    NSMenuItem *updItem = [[NSMenuItem alloc] initWithTitle:@"检查软件更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
+    updItem.target = self;
+    [menu addItem:updItem];
 
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"退出 Nekobox-Mac" action:@selector(terminate:) keyEquivalent:@"q"];
@@ -521,6 +526,11 @@ static void performTitlebarDoubleClick(NSWindow *window) {
 - (void)openPermissionGuide:(id)sender {
     [self showMainWindow:nil];
     [self.webView evaluateJavaScript:@"window.__nekoOpenPermissionGuide && window.__nekoOpenPermissionGuide();" completionHandler:nil];
+}
+
+- (void)checkForUpdates:(id)sender {
+    [self showMainWindow:nil];
+    [self.webView evaluateJavaScript:@"window.__nekoCheckUpdate && window.__nekoCheckUpdate();" completionHandler:nil];
 }
 
 - (void)reloadWebView:(id)sender {

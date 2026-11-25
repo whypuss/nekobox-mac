@@ -45,7 +45,7 @@ import (
 	"nekobox-mac/internal/xraybridge"
 )
 
-var AppVersion = "1.6.2-mac"
+var AppVersion = "1.6.3-mac"
 
 type State string
 

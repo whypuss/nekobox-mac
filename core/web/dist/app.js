@@ -52,6 +52,8 @@
     refresh: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/></svg>`,
     speed: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="m20.38 8.57-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83"/></svg>`,
     check: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`,
+    download: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>`,
+    copy: `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`,
     globe: `<svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2m6.93 6h-2.95a15.65 15.65 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.93 8M12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96M4.26 14a8.1 8.1 0 0 1 0-4h3.38a16.5 16.5 0 0 0-.14 2c0 .68.05 1.35.14 2zm.81 2h2.95c.32 1.25.78 2.45 1.38 3.56A8 8 0 0 1 5.07 16m2.95-8H5.07a8 8 0 0 1 4.33-3.56A15.65 15.65 0 0 0 8.02 8M12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96M14.34 14H9.66a14.7 14.7 0 0 1-.16-2c0-.68.06-1.35.16-2h4.68c.1.65.16 1.32.16 2s-.06 1.35-.16 2m.26 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8 8 0 0 1-4.33 3.56M16.36 14c.09-.65.14-1.32.14-2s-.05-1.35-.14-2h3.38a8.1 8.1 0 0 1 0 4z"/></svg>`,
     catActive: `<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path fill-rule="evenodd" d="M5.4,11.7 L5.3,8.9 C5.3,6.4 5.7,4.1 6.3,3.2 C6.7,2.6 7.4,2.6 8.1,3.1 L10.2,4.9 C11.3,4.6 12.7,4.6 13.8,4.9 L15.9,3.1 C16.6,2.6 17.3,2.6 17.7,3.2 C18.3,4.1 18.7,6.4 18.7,8.9 L18.6,11.7 Z M9.1,7.5 C8.4,7.5 7.9,8.2 7.9,9.2 C7.9,10.2 8.4,10.9 9.1,10.9 C9.8,10.9 10.3,10.2 10.3,9.2 C10.3,8.2 9.8,7.5 9.1,7.5 Z M14.9,7.5 C14.2,7.5 13.7,8.2 13.7,9.2 C13.7,10.2 14.2,10.9 14.9,10.9 C15.6,10.9 16.1,10.2 16.1,9.2 C16.1,8.2 15.6,7.5 14.9,7.5 Z"/><path d="M4.6,12.6 L11.4,12.6 L11.4,15.3 L2.9,15.3 C2.3,15.3 2.0,14.6 2.4,14.1 L4.0,12.8 C4.2,12.7 4.4,12.6 4.6,12.6 Z M12.6,12.6 L19.4,12.6 C19.6,12.6 19.8,12.7 20.0,12.8 L21.6,14.1 C22.0,14.6 21.7,15.3 21.1,15.3 L12.6,15.3 Z M4.6,16.4 L19.4,16.4 L19.4,19.1 C19.4,20.4 18.4,21.4 17.1,21.4 L6.9,21.4 C5.6,21.4 4.6,20.4 4.6,19.1 Z"/></svg>`,
     planeIdle: `<svg viewBox="0 0 24 24" width="25" height="25" fill="currentColor"><path d="M21.25 2.28 0 12.8l6.83 2.57 9.76-8.21-7.33 8.73 8.29 2.67 3.7-16.27ZM9.45 17.56l.01 4.44 2.63-3.59z"/></svg>`,
@@ -86,6 +88,8 @@
   let runtimeStatus = null;
   let coreVersions = null;
   let macPermissions = null;
+  let latestUpdateInfo = null;
+  let updatePollTimer = null;
   let logsList = [];
   let macAppsCache = null;
   let metaStatusCache = null;
@@ -572,6 +576,7 @@
                     <div style="font-size:16px;font-weight:700">${escapeHtml(g.name)} ${g.isDefault ? `<span class="proto-pill" style="margin-left:6px">默认</span>` : ""}</div>
                     <div class="pref-summary">${isSub ? escapeHtml(g.subscriptionUrl) : "本地分组"}</div>
                   </div>
+                  <button class="icon-btn squircle btn-g-share" data-gid="${g.id}" title="分享分组节点 / 导出链接">${ICONS.share}</button>
                   <button class="icon-btn squircle btn-g-edit" data-gid="${g.id}" title="编辑分组">${ICONS.edit}</button>
                   ${!g.isDefault ? `<button class="icon-btn squircle btn-g-del" data-gid="${g.id}" title="删除分组">${ICONS.del}</button>` : ""}
                 </div>
@@ -580,7 +585,10 @@
                     ${trafficStr ? `<div style="font-size:12.5px;color:var(--primary);font-weight:600">${trafficStr}</div>` : ""}
                     <div class="pref-summary">${count} 个节点 ${lastUpd ? "· " + lastUpd : ""}</div>
                   </div>
-                  ${isSub ? `<button class="btn btn-tonal btn-g-upd" data-gid="${g.id}">更新订阅</button>` : ""}
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn btn-ghost btn-g-quick-copy" data-gid="${g.id}" title="一键复制该分组内全部节点分享链接">一键复制节点</button>
+                    ${isSub ? `<button class="btn btn-tonal btn-g-upd" data-gid="${g.id}">更新订阅</button>` : ""}
+                  </div>
                 </div>
               </div>
             `;
@@ -589,6 +597,12 @@
       </div>
     `;
 
+    holder.querySelectorAll(".btn-g-share").forEach((b) => {
+      b.onclick = () => openGroupShareDialog(Number(b.dataset.gid));
+    });
+    holder.querySelectorAll(".btn-g-quick-copy").forEach((b) => {
+      b.onclick = () => quickCopyGroupNodes(Number(b.dataset.gid));
+    });
     holder.querySelectorAll(".btn-g-edit").forEach((b) => {
       b.onclick = () => openGroupDialog(groups.find((x) => x.id === Number(b.dataset.gid)));
     });
@@ -1080,6 +1094,14 @@
               </div>
               <button class="btn btn-tonal" type="button" id="btnOpenPermGuideSettings">打开教学</button>
             </div>
+            <div class="pref-row" id="rowCheckUpdateSettings" style="cursor:pointer">
+              <span class="pref-icon-badge" data-icon="download"></span>
+              <div class="pref-text">
+                <div class="pref-title">软件更新（支持原地升级）${latestUpdateInfo?.hasUpdate ? ` <span class="update-badge-pill">新版本 v${escapeHtml(latestUpdateInfo.latestVersion)}</span>` : ""}</div>
+                <div class="pref-summary">当前版本 ${escapeHtml(coreVersions?.app || "1.6.3-mac")} · 在线原地覆盖升级，自动保留全部节点与设置</div>
+              </div>
+              <button class="btn ${latestUpdateInfo?.hasUpdate ? "btn-primary" : "btn-tonal"}" type="button" id="btnCheckUpdateSettings">${latestUpdateInfo?.hasUpdate ? "立即升级" : "检查更新"}</button>
+            </div>
           </div>
 
           <!-- Interface & Liquid Glass 3.0 Motion -->
@@ -1191,6 +1213,15 @@
       $("btnOpenPermGuideSettings").onclick = (e) => {
         e.stopPropagation();
         openPermissionGuideDialog(true);
+      };
+    }
+    if ($("rowCheckUpdateSettings")) {
+      $("rowCheckUpdateSettings").onclick = () => openUpdateDialog(true);
+    }
+    if ($("btnCheckUpdateSettings")) {
+      $("btnCheckUpdateSettings").onclick = (e) => {
+        e.stopPropagation();
+        openUpdateDialog(true);
       };
     }
 
@@ -1426,7 +1457,7 @@
               <img class="about-logo" src="/assets/app-icon.png" alt="Nekobox-Mac" />
               <div>
                 <div style="font-size:20px;font-weight:800">Nekobox-Mac</div>
-                <span class="status-pill">${escapeHtml(v.app || "1.6.2-mac")} · macOS Universal (arm64 + x86_64)</span>
+                <span class="status-pill">${escapeHtml(v.app || "1.6.3-mac")} · macOS Universal (arm64 + x86_64)</span>
               </div>
             </div>
             <div class="core-pills">
@@ -1439,6 +1470,14 @@
           </div>
 
           <div class="section-card compact glass-surface">
+            <div class="pref-row" id="aboutUpdateRow" style="cursor:pointer">
+              <span class="pref-icon-badge" data-icon="download"></span>
+              <div class="pref-text">
+                <div class="pref-title">检查软件更新${latestUpdateInfo?.hasUpdate ? ` <span class="update-badge-pill">可升级至 v${escapeHtml(latestUpdateInfo.latestVersion)}</span>` : ""}</div>
+                <div class="pref-summary">${latestUpdateInfo?.hasUpdate ? `发现新版本 ${escapeHtml(latestUpdateInfo.latestTag)} · 点击一键原地升级，无需手动删除重装，完整保留所有节点与配置` : `当前版本 ${escapeHtml(v.app || "1.6.3-mac")} · 支持应用内原地覆盖升级并自动重启`}</div>
+              </div>
+              <button class="btn ${latestUpdateInfo?.hasUpdate ? "btn-primary" : "btn-tonal"}" type="button" id="btnAboutCheckUpdate">${latestUpdateInfo?.hasUpdate ? "立即升级" : "检查更新"}</button>
+            </div>
             <div class="pref-row" id="aboutSysProxyRow">
               <span class="pref-icon-badge" data-icon="globe"></span>
               <div class="pref-text">
@@ -1490,6 +1529,11 @@
       } catch (err) {
         showSnackbar(err.message);
       }
+    };
+    $("aboutUpdateRow").onclick = () => openUpdateDialog(true);
+    $("btnAboutCheckUpdate").onclick = (e) => {
+      e.stopPropagation();
+      openUpdateDialog(true);
     };
     $("aboutPermGuideRow").onclick = () => openPermissionGuideDialog(true);
     $("btnAboutPermGuide").onclick = (e) => {
@@ -1543,6 +1587,7 @@
   function showProfileMoreMenu(anchor) {
     const gid = appState.selectedGroup || 0;
     showPopup(anchor, [
+      { label: "一键分享当前分组节点", icon: "share", action: () => openGroupShareDialog(gid) },
       { label: "批量 URL Test (1-RTT 测速)", icon: "speed", action: batchTestVisible },
       { label: "按延迟从低到高排序", icon: "speed", action: () => sortProfiles("latency") },
       { label: "按名称排序", icon: "description", action: () => sortProfiles("name") },
@@ -1582,6 +1627,10 @@
   }
 
   function closeModal() {
+    if (updatePollTimer) {
+      clearInterval(updatePollTimer);
+      updatePollTimer = null;
+    }
     $("modalBackdrop").classList.add("hidden");
     $("modalDialog").classList.remove("modal-wide");
   }
@@ -2072,6 +2121,379 @@
     }
   }
 
+  async function copyTextWithFallback(text) {
+    if (!text) return false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {}
+    }
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch {}
+    ta.remove();
+    return ok;
+  }
+
+  async function quickCopyGroupNodes(gid) {
+    try {
+      const data = await api(`/api/groups/share?id=${gid}`);
+      if (!data.count) {
+        if (data.subscriptionUrl) {
+          await copyTextWithFallback(data.subscriptionUrl);
+          showSnackbar(`分组「${data.groupName}」暂无节点，已复制订阅链接`);
+        } else {
+          showSnackbar(`分组「${data.groupName}」暂无可分享的节点`);
+        }
+        return;
+      }
+      await copyTextWithFallback(data.rawText);
+      const skipHint = data.skipped > 0 ? `（跳过 ${data.skipped} 个完整 JSON 配置）` : "";
+      showSnackbar(`已一键复制「${data.groupName}」全部 ${data.count} 个节点链接${skipHint}`, 3200);
+    } catch (err) {
+      showSnackbar(err.message || "复制分组节点失败", 3500);
+    }
+  }
+
+  async function openGroupShareDialog(gid) {
+    try {
+      const data = await api(`/api/groups/share?id=${gid}`);
+      let mode = "raw"; // raw | base64
+
+      const renderShareModal = () => {
+        const activeText = mode === "base64" ? (data.base64Text || "") : (data.rawText || "");
+        const skipNote = data.skipped > 0 ? ` · 已跳过 ${data.skipped} 个完整 JSON 配置` : "";
+        const subRow = data.subscriptionUrl ? `
+          <div class="field-group">
+            <label class="field-label">原始远程订阅链接</label>
+            <div class="perm-cmd-row" style="margin-top:0">
+              <code class="perm-cmd-code">${escapeHtml(data.subscriptionUrl)}</code>
+              <button type="button" class="btn btn-tonal" id="btnCopyGroupSubUrl" style="padding:4px 10px;font-size:12px">复制订阅</button>
+            </div>
+          </div>
+        ` : "";
+
+        const bodyHtml = `
+          ${subRow}
+          <div class="perm-topbar" style="margin-bottom:8px">
+            <div class="pref-summary" style="margin:0">
+              分组 <b>${escapeHtml(data.groupName)}</b> · 共 <b>${data.count}</b> 个可分享节点${escapeHtml(skipNote)}
+            </div>
+            <div class="perm-lang-tabs" role="tablist">
+              <button type="button" class="perm-lang-btn ${mode === "raw" ? "active" : ""}" data-gsmode="raw">明文多行链接</button>
+              <button type="button" class="perm-lang-btn ${mode === "base64" ? "active" : ""}" data-gsmode="base64">Base64 订阅</button>
+            </div>
+          </div>
+          <div class="field-group" style="margin-bottom:0">
+            <textarea class="field-textarea" id="groupShareTextarea" rows="10" readonly placeholder="该分组内暂无可导出的节点分享链接">${escapeHtml(activeText)}</textarea>
+          </div>
+        `;
+
+        openModal(
+          `分享分组 · ${data.groupName}`,
+          bodyHtml,
+          [
+            {
+              label: "导出 .txt 文件",
+              cls: "btn-ghost",
+              action: () => {
+                const content = $("groupShareTextarea").value;
+                if (!content) return showSnackbar("暂无可导出的节点内容");
+                const safeName = (data.groupName || "group").replace(/[\\/:*?"<>|]+/g, "_");
+                const suffix = mode === "base64" ? "-base64" : "";
+                const filename = `nekobox-${safeName}${suffix}.txt`;
+                if (window.webkit?.messageHandlers?.nekoWindow) {
+                  window.webkit.messageHandlers.nekoWindow.postMessage({ action: "saveFile", filename, content });
+                  showSnackbar("请选择导出文件保存位置");
+                } else {
+                  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+                  const a = document.createElement("a");
+                  a.href = URL.createObjectURL(blob);
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  showSnackbar(`已导出 ${filename}`);
+                }
+              },
+            },
+            {
+              label: "复制 Base64",
+              cls: "btn-tonal",
+              action: async () => {
+                if (!data.base64Text) return showSnackbar("该分组暂无可分享的节点");
+                await copyTextWithFallback(data.base64Text);
+                showSnackbar(`已复制「${data.groupName}」Base64 订阅（${data.count} 个节点）`);
+              },
+            },
+            {
+              label: `一键复制全部节点 (${data.count})`,
+              cls: "btn-primary",
+              action: async () => {
+                if (!data.rawText) return showSnackbar("该分组暂无可分享的节点");
+                await copyTextWithFallback(data.rawText);
+                showSnackbar(`已一键复制「${data.groupName}」全部 ${data.count} 个节点链接`);
+                closeModal();
+              },
+            },
+          ],
+          { wide: true }
+        );
+
+        $("modalBody").querySelectorAll("[data-gsmode]").forEach((btn) => {
+          btn.onclick = () => {
+            mode = btn.dataset.gsmode;
+            renderShareModal();
+          };
+        });
+        if ($("btnCopyGroupSubUrl")) {
+          $("btnCopyGroupSubUrl").onclick = async () => {
+            await copyTextWithFallback(data.subscriptionUrl);
+            showSnackbar("已复制原始订阅链接");
+          };
+        }
+      };
+
+      renderShareModal();
+    } catch (err) {
+      showSnackbar(err.message || "加载分组分享失败");
+    }
+  }
+
+  // =====================================================================
+  // IN-APP AUTO UPDATE & ATOMIC IN-PLACE UPGRADE
+  // =====================================================================
+  function updateNavUpdateBadge() {
+    const dot = $("navUpdateDot");
+    if (!dot) return;
+    const ignored = appState?.settings?.ignoredUpdateVersion || "";
+    const show = Boolean(latestUpdateInfo?.hasUpdate && latestUpdateInfo.latestVersion !== ignored);
+    dot.classList.toggle("hidden", !show);
+  }
+
+  async function silentCheckUpdate() {
+    try {
+      const info = await api("/api/update/check");
+      latestUpdateInfo = info;
+      updateNavUpdateBadge();
+      if (currentPage === "about" || currentPage === "settings") {
+        renderCurrentPage();
+      }
+      const ignored = appState?.settings?.ignoredUpdateVersion || "";
+      if (info.hasUpdate && info.latestVersion !== ignored) {
+        showSnackbar(`发现新版本 ${info.latestTag}，可在「关于」或菜单栏一键原地升级`, 4200);
+      }
+    } catch {
+      // Silent background check never disrupts user
+    }
+  }
+
+  async function openUpdateDialog(forceCheck = true) {
+    if (updatePollTimer) {
+      clearInterval(updatePollTimer);
+      updatePollTimer = null;
+    }
+
+    // Check if an update job is already running first
+    try {
+      const st = await api("/api/update/status");
+      if (st && st.active) {
+        renderUpdateProgressDialog(st);
+        startUpdateProgressPolling();
+        return;
+      }
+    } catch {}
+
+    if (forceCheck || !latestUpdateInfo) {
+      openModal("检查软件更新", `
+        <div class="empty-state" style="padding:26px 12px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:6px">正在从 GitHub Releases 检查最新版本…</div>
+          <div class="pref-summary">当前版本：${escapeHtml(coreVersions?.app || "1.6.3-mac")}</div>
+        </div>
+      `, [{ label: "关闭", cls: "btn-ghost", action: closeModal }]);
+
+      try {
+        latestUpdateInfo = await api("/api/update/check");
+        updateNavUpdateBadge();
+        if (currentPage === "about" || currentPage === "settings") renderCurrentPage();
+      } catch (err) {
+        openModal("检查软件更新", `
+          <div class="perm-card perm-card-highlight">
+            <div class="perm-card-title" style="margin-bottom:6px">检查更新失败</div>
+            <div class="pref-summary">${escapeHtml(err.message)}</div>
+            <div class="pref-summary" style="margin-top:8px">提示：如果当前网络直连 GitHub 受限，可先连接代理节点后再点击「重试」。</div>
+          </div>
+        `, [
+          { label: "前往 GitHub Releases", cls: "btn-ghost", action: () => api("/api/tools/open-url", "POST", { url: "https://github.com/whypuss/nekobox-mac/releases" }) },
+          { label: "重试", cls: "btn-primary", action: () => openUpdateDialog(true) },
+        ]);
+        return;
+      }
+    }
+
+    const info = latestUpdateInfo;
+    const assetLine = info.asset
+      ? `${escapeHtml(info.asset.name)} (${formatBytes(info.asset.size)})`
+      : "未检测到匹配的 macOS DMG 包";
+    const notesHtml = escapeHtml(info.releaseNotes || "本次更新包含功能完善与稳定性修复。").replace(/\n/g, "<br/>");
+
+    if (!info.hasUpdate) {
+      openModal("软件更新", `
+        <div class="perm-card">
+          <div class="perm-card-head">
+            <div class="perm-card-title">当前已是最新版本</div>
+            <span class="perm-badge perm-badge-ok">✓ 最新</span>
+          </div>
+          <div class="pref-summary">
+            当前运行版本：<b>${escapeHtml(info.currentVersion)}</b><br/>
+            线上最新版本：<b>${escapeHtml(info.latestTag)}</b><br/>
+            升级路径：支持应用内一键原地覆盖升级，无需卸载重装，所有节点、订阅、路由与设置均自动保留。
+          </div>
+        </div>
+      `, [
+        { label: "查看 Releases", cls: "btn-ghost", action: () => api("/api/tools/open-url", "POST", { url: info.releaseUrl || "https://github.com/whypuss/nekobox-mac/releases" }) },
+        { label: "重新检查", cls: "btn-tonal", action: () => openUpdateDialog(true) },
+        { label: "完成", cls: "btn-primary", action: closeModal },
+      ]);
+      return;
+    }
+
+    openModal(`发现新版本 ${info.latestTag}`, `
+      <div class="perm-status-strip">
+        <span class="perm-badge perm-badge-info">当前：${escapeHtml(info.currentVersion)}</span>
+        <span class="perm-badge perm-badge-ok">最新：${escapeHtml(info.latestTag)}</span>
+        <span class="perm-badge perm-badge-info">安装包：${assetLine}</span>
+      </div>
+      <div class="perm-card">
+        <div class="perm-card-title" style="margin-bottom:6px">更新说明</div>
+        <div class="update-notes-box">${notesHtml}</div>
+      </div>
+      <div class="pref-summary">
+        将自动下载并校验 SHA-256 与代码签名，原地替换 <code>${escapeHtml(info.installTarget || "/Applications/Nekobox-Mac.app")}</code> 后自动重启。<b>您的所有节点、分组与配置都会完整保留，无需卸载重装。</b>
+      </div>
+    `, [
+      {
+        label: "忽略此版本",
+        cls: "btn-ghost",
+        action: async () => {
+          try {
+            const res = await api("/api/update/ignore", "POST", { version: info.latestVersion });
+            appState = res.state;
+            updateNavUpdateBadge();
+            closeModal();
+            showSnackbar(`已忽略版本 ${info.latestTag}`);
+          } catch (err) {
+            showSnackbar(err.message);
+          }
+        },
+      },
+      {
+        label: "手动下载",
+        cls: "btn-tonal",
+        action: () => api("/api/tools/open-url", "POST", { url: info.releaseUrl || "https://github.com/whypuss/nekobox-mac/releases" }),
+      },
+      {
+        label: "立即原地升级",
+        cls: "btn-primary",
+        action: async () => {
+          if (!info.canInPlaceUpdate || !info.asset) {
+            showSnackbar("未找到匹配的安装包，请前往 GitHub Releases 下载");
+            return;
+          }
+          try {
+            const res = await api("/api/update/apply", "POST", {
+              version: info.latestVersion,
+              assetName: info.asset.name,
+              downloadUrl: info.asset.downloadUrl,
+              sha256SumsUrl: info.sha256SumsUrl || "",
+            });
+            renderUpdateProgressDialog(res.status || { active: true, stage: "downloading", percent: 0, message: "正在开始下载…" });
+            startUpdateProgressPolling();
+          } catch (err) {
+            showSnackbar(err.message, 4200);
+          }
+        },
+      },
+    ], { wide: true });
+  }
+
+  function renderUpdateProgressDialog(st) {
+    const pct = Math.max(0, Math.min(100, Number(st.percent || 0)));
+    const sizeText = st.totalBytes > 0
+      ? `${formatBytes(st.downloadedBytes)} / ${formatBytes(st.totalBytes)} (${pct}%)`
+      : st.downloadedBytes > 0
+      ? `已下载 ${formatBytes(st.downloadedBytes)}`
+      : "";
+    const isErr = st.stage === "error";
+    const isRelaunching = st.stage === "relaunching" || st.stage === "done";
+
+    const stageLabels = {
+      downloading: "1/4 下载安装包",
+      verifying: "2/4 SHA-256 完整性校验",
+      mounting: "3/4 挂载镜像并提取应用",
+      installing: "3/4 校验代码签名",
+      relaunching: "4/4 原地覆盖并自动重启",
+      done: "4/4 正在重启新版本…",
+      error: "升级中断",
+    };
+
+    const bodyHtml = `
+      <div class="perm-card ${isErr ? "perm-card-highlight" : ""}">
+        <div class="perm-card-head">
+          <div class="perm-card-title">${escapeHtml(stageLabels[st.stage] || "正在升级…")}</div>
+          <span class="perm-badge ${isErr ? "perm-badge-warn" : "perm-badge-info"}">${escapeHtml(st.targetVersion ? "v" + st.targetVersion : "更新中")}</span>
+        </div>
+        <div class="update-progress-track">
+          <div class="update-progress-fill" style="width:${isRelaunching ? 100 : pct}%"></div>
+        </div>
+        <div class="update-progress-meta">
+          <span>${escapeHtml(st.message || "")}</span>
+          <span>${escapeHtml(sizeText)}</span>
+        </div>
+        ${st.installTarget ? `<div class="pref-summary" style="margin-top:8px">目标路径：<code>${escapeHtml(st.installTarget)}</code>（完整保留所有配置与节点）</div>` : ""}
+      </div>
+    `;
+
+    const buttons = isErr
+      ? [
+          { label: "前往 GitHub Releases", cls: "btn-ghost", action: () => api("/api/tools/open-url", "POST", { url: latestUpdateInfo?.releaseUrl || "https://github.com/whypuss/nekobox-mac/releases" }) },
+          { label: "重试升级", cls: "btn-primary", action: () => openUpdateDialog(true) },
+        ]
+      : [
+          { label: isRelaunching ? "正在自动重启…" : "后台继续下载", cls: "btn-tonal", action: closeModal },
+        ];
+
+    openModal("正在原地升级 Nekobox-Mac", bodyHtml, buttons);
+  }
+
+  function startUpdateProgressPolling() {
+    if (updatePollTimer) clearInterval(updatePollTimer);
+    updatePollTimer = setInterval(async () => {
+      try {
+        const st = await api("/api/update/status");
+        if (!$("modalBackdrop").classList.contains("hidden")) {
+          renderUpdateProgressDialog(st);
+        }
+        if (!st.active && (st.stage === "error" || st.stage === "idle")) {
+          clearInterval(updatePollTimer);
+          updatePollTimer = null;
+        }
+      } catch {
+        // Core exited to complete swap & relaunch
+        clearInterval(updatePollTimer);
+        updatePollTimer = null;
+      }
+    }, 350);
+  }
+
+  window.__nekoCheckUpdate = () => openUpdateDialog(true);
+
   function openGroupDialog(existing = null) {
     const g = existing ? { ...existing } : { id: 0, name: "", type: "basic", subscriptionUrl: "", userAgent: "", deduplication: true };
     openModal(g.id ? "编辑分组" : "新建分组 / 订阅", `
@@ -2466,6 +2888,9 @@
         setTimeout(() => openPermissionGuideDialog(false), 180);
       }
     }
+
+    // Silent background update check
+    setTimeout(() => { silentCheckUpdate(); }, 2500);
   }
 
   window.addEventListener("DOMContentLoaded", init);

@@ -1,4 +1,4 @@
-VERSION ?= 1.6.2
+VERSION ?= 1.6.3
 
 .PHONY: all universal arm64 x64 amd64 dmg dmg-all test clean run
 
