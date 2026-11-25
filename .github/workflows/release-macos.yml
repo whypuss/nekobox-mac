@@ -1,0 +1,147 @@
+name: Build & Release macOS
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.6.1)'
+        required: false
+        default: '1.6.1'
+      create_release:
+        description: 'Publish GitHub Release'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    name: macOS Universal + arm64 + x86_64
+    runs-on: macos-14
+    env:
+      GOTOOLCHAIN: auto
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Resolve version
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            VER="${TAG#v}"
+            IS_RELEASE="true"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            VER="${{ inputs.version }}"
+            VER="${VER:-1.6.1}"
+            TAG="v${VER}"
+            IS_RELEASE="${{ inputs.create_release }}"
+          else
+            VER="1.6.1"
+            TAG="v${VER}"
+            IS_RELEASE="false"
+          fi
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "is_release=${IS_RELEASE}" >> "$GITHUB_OUTPUT"
+          echo "Version=${VER} Tag=${TAG} Release=${IS_RELEASE}"
+
+      - name: Run tri-core unit tests
+        run: make test
+
+      - name: Build & package macOS DMGs (universal / arm64 / amd64)
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          make dmg-all
+          cd dist
+          shasum -a 256 *.dmg > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Verify Universal & single-arch binaries
+        run: |
+          echo "=== Verify single-arch & universal binaries ==="
+          lipo -info build/core/nekobox-core-arm64 | grep -q "arm64"
+          lipo -info build/core/nekobox-core-amd64 | grep -q "x86_64"
+          lipo -info build/core/nekobox-core
+          lipo -info build/shell/Nekobox-Mac
+          lipo -info build/core/nekobox-core | grep -q "x86_64"
+          lipo -info build/core/nekobox-core | grep -q "arm64"
+          lipo -info build/shell/Nekobox-Mac | grep -q "x86_64"
+          lipo -info build/shell/Nekobox-Mac | grep -q "arm64"
+
+          echo "=== Verify version output on native Apple Silicon runner ==="
+          ./build/core/nekobox-core --version
+
+          echo "=== Verify DMG artifacts ==="
+          test -f "dist/Nekobox-Mac-${{ steps.meta.outputs.version }}-universal.dmg"
+          test -f "dist/Nekobox-Mac-${{ steps.meta.outputs.version }}-arm64.dmg"
+          test -f "dist/Nekobox-Mac-${{ steps.meta.outputs.version }}-amd64.dmg"
+          ls -lh dist/
+
+      - name: Upload macOS build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nekobox-mac-${{ steps.meta.outputs.version }}-macos
+          path: |
+            dist/*.dmg
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: steps.meta.outputs.is_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VER: ${{ steps.meta.outputs.version }}
+        run: |
+          NOTES_FILE="$(mktemp)"
+          cat > "$NOTES_FILE" <<EOF
+          ## Nekobox-Mac ${TAG} (macOS Only)
+
+          基于 [shixiaoheia/Nekobox-Next](https://github.com/shixiaoheia/Nekobox-Next) 移植的纯 macOS 原生三内核代理客户端，1:1 复刻 Liquid Glass 3.0 液态玻璃与怀旧双界面（含 21 套主题色）。
+
+          ### 下载选择
+          - **\`Nekobox-Mac-${VER}-universal.dmg\`**（推荐）：Apple Silicon（M1/M2/M3/M4）+ Intel 通用原生版
+          - **\`Nekobox-Mac-${VER}-arm64.dmg\`**：Apple Silicon（M 系列芯片）独立版
+          - **\`Nekobox-Mac-${VER}-amd64.dmg\`**：Intel Mac（x86_64）独立版
+
+          ### 内置核心版本
+          \`\`\`
+          $(./build/core/nekobox-core --version)
+          \`\`\`
+
+          ### SHA-256 校验
+          \`\`\`
+          $(cat dist/SHA256SUMS.txt)
+          \`\`\`
+          EOF
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.dmg dist/SHA256SUMS.txt --clobber
+            gh release edit "$TAG" --title "Nekobox-Mac ${TAG}" --notes-file "$NOTES_FILE"
+          else
+            gh release create "$TAG" dist/*.dmg dist/SHA256SUMS.txt \
+              --title "Nekobox-Mac ${TAG}" \
+              --notes-file "$NOTES_FILE"
+          fi

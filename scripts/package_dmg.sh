@@ -9,8 +9,10 @@ VERSION="${VERSION:-1.6.1}"
 
 bash "$ROOT_DIR/scripts/build_app.sh" "$ARCH"
 
+codesign --verify --deep --strict --verbose=1 "$BUILD_DIR/Nekobox-Mac.app"
+
 mkdir -p "$DIST_DIR"
-STAGE_DIR="$BUILD_DIR/dmg-stage"
+STAGE_DIR="$BUILD_DIR/dmg-stage-${ARCH}"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
 
@@ -21,11 +23,22 @@ DMG_NAME="Nekobox-Mac-${VERSION}-${ARCH}.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
 rm -f "$DMG_PATH"
 
-hdiutil create \
-  -volname "Nekobox-Mac" \
-  -srcfolder "$STAGE_DIR" \
-  -ov -format UDZO \
-  "$DMG_PATH"
+sync
+for attempt in 1 2 3; do
+  if hdiutil create \
+    -volname "Nekobox-Mac" \
+    -srcfolder "$STAGE_DIR" \
+    -ov -format UDZO \
+    "$DMG_PATH"; then
+    break
+  fi
+  if [[ "$attempt" -eq 3 ]]; then
+    echo "hdiutil create failed after 3 attempts" >&2
+    exit 1
+  fi
+  echo "hdiutil create retry $attempt/3 ..."
+  sleep 3
+done
 
 rm -rf "$STAGE_DIR"
 shasum -a 256 "$DMG_PATH"

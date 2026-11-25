@@ -1,8 +1,22 @@
 # Nekobox-Mac
 
-专为 **macOS（Apple Silicon M 系列 + Intel x86_64 通用二进制）** 打造的原生三内核代理客户端，基于 [shixiaoheia/Nekobox-Next](https://github.com/shixiaoheia/Nekobox-Next) 源码完整移植并 1:1 复刻其 **Liquid Glass 3.0 液态玻璃** 与 **怀旧界面** 双风格 UI。
+[![Build & Release macOS](https://github.com/whypuss/nekobox-mac/actions/workflows/release-macos.yml/badge.svg)](https://github.com/whypuss/nekobox-mac/actions/workflows/release-macos.yml)
+[![macOS 12+](https://img.shields.io/badge/macOS-12%2B%20(M%20%26%20Intel)-blue.svg)](https://github.com/whypuss/nekobox-mac/releases)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange.svg)](LICENSE)
+
+专为 **macOS（Apple Silicon M 系列 + Intel x86_64）** 打造的原生三内核代理客户端，基于 [shixiaoheia/Nekobox-Next](https://github.com/shixiaoheia/Nekobox-Next) 源码完整移植并 1:1 复刻其 **Liquid Glass 3.0 液态玻璃** 与 **怀旧界面** 双风格 UI。
 
 本项目**仅面向 macOS（macOS 12.0+）**，不包含 Windows、Linux 或 Android 平台冗余代码与构建脚本。
+
+## 下载安装
+
+前往 [GitHub Releases](https://github.com/whypuss/nekobox-mac/releases) 下载对应安装镜像：
+
+| 芯片平台 | 架构标识 | 安装包说明 |
+|---|---|---|
+| Apple Silicon (M1/M2/M3/M4) + Intel 通用 | `universal` (`arm64` + `x86_64`) | `Nekobox-Mac-*-universal.dmg`（推荐，全系 Mac 通用原生） |
+| Apple Silicon 独立版 | `arm64` | `Nekobox-Mac-*-arm64.dmg`（仅 M 系列芯片） |
+| Intel Mac 独立版 | `amd64` (`x86_64`) | `Nekobox-Mac-*-amd64.dmg`（仅 Intel 芯片） |
 
 ## 核心特性
 
@@ -21,36 +35,22 @@
   - 监听 macOS 休眠与唤醒通知，联动 `box.Sleep()` / `box.Wake()` 与省电开关页面。
   - 支持 `LaunchAgent` 开机自启。
 
-## 支持架构
-
-| 芯片平台 | 架构标识 | 产物说明 |
-|---|---|---|
-| Apple Silicon (M1/M2/M3/M4) + Intel 通用 | `universal` (`arm64` + `x86_64`) | 默认构建，一份 `.app` / `.dmg` 通用于所有 Mac |
-| Apple Silicon 独立版 | `arm64` | 仅包含 M 系列芯片原生指令 |
-| Intel Mac 独立版 | `amd64` (`x86_64`) | 仅包含 Intel 芯片原生指令 |
-
-## 构建与打包
+## 本地构建与 GitHub Actions 流水线
 
 依赖：macOS 12+、Command Line Tools (`clang` / `lipo` / `codesign` / `iconutil` / `hdiutil`)、Go 1.27+。
 
 ```bash
-# 1. 编译 Universal 通用版 .app（同时包含 arm64 与 x86_64）
+# 编译 Universal 通用版 .app（同时包含 arm64 与 x86_64）
 make universal
 
-# 2. 打包通用版 .dmg 安装镜像
-make dmg
+# 打包 Universal / arm64 / amd64 三份 DMG 安装镜像
+make dmg-all
 
-# 3. 单独构建 Apple Silicon (M系列) 或 Intel 版本
-make arm64
-make amd64
-
-# 4. 运行核心单元测试
+# 运行三内核单元测试
 make test
 ```
 
-产物输出路径：
-- 应用包：`build/Nekobox-Mac.app`
-- 安装镜像：`dist/Nekobox-Mac-1.6.1-universal.dmg`
+GitHub Actions（`.github/workflows/release-macos.yml`）仅运行于 `macos-14` runner，推送 `main` 时自动执行单元测试并构建三架构 DMG Artifacts；推送 `v*` 标签时自动校验并发布 GitHub Release。
 
 ## 开源协议
 

@@ -17,12 +17,12 @@ dmg:
 	VERSION=$(VERSION) bash scripts/package_dmg.sh universal
 
 dmg-all:
-	VERSION=$(VERSION) bash scripts/package_dmg.sh universal
 	VERSION=$(VERSION) bash scripts/package_dmg.sh arm64
 	VERSION=$(VERSION) bash scripts/package_dmg.sh amd64
+	VERSION=$(VERSION) bash scripts/package_dmg.sh universal
 
 test:
-	cd core && go test -tags "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_v2ray_api" ./...
+	cd core && go test -tags "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_v2ray_api" -ldflags "-checklinkname=0" ./...
 
 run: universal
 	open build/Nekobox-Mac.app
