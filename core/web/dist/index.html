@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-ui="liquid" data-theme="2" data-dark="false">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Nekobox-Mac</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- Ambient Liquid Glass Canvas with dual radial glow pools -->
+  <div class="ambient-canvas" id="ambientCanvas" aria-hidden="true">
+    <div class="ambient-glow ambient-glow-top"></div>
+    <div class="ambient-glow ambient-glow-bottom"></div>
+  </div>
+
+  <!-- macOS draggable titlebar safe zone -->
+  <div class="mac-drag-strip" id="macDragStrip"></div>
+
+  <div class="app-shell" id="appShell">
+    <!-- Drawer backdrop (compact mode) -->
+    <div class="drawer-backdrop" id="drawerBackdrop"></div>
+
+    <!-- Left Navigation Drawer (1:1 main_drawer_menu.xml) -->
+    <aside class="nav-drawer" id="navDrawer" aria-label="主导航">
+      <div class="nav-header">
+        <img class="nav-logo" src="/assets/app-icon.png" alt="Nekobox-Mac" />
+        <div class="nav-brand">
+          <div class="nav-title">Nekobox-Mac</div>
+          <div class="nav-subtitle">sing-box · Xray · Mihomo</div>
+          <div class="nav-chip-badge" id="navChipBadge">macOS Universal</div>
+        </div>
+      </div>
+
+      <nav class="nav-list" id="navList">
+        <button class="nav-item active" data-page="configuration">
+          <span class="nav-icon" data-icon="description"></span>
+          <span class="nav-label">配置</span>
+        </button>
+        <button class="nav-item" data-page="groups">
+          <span class="nav-icon" data-icon="groups"></span>
+          <span class="nav-label">分组</span>
+        </button>
+        <button class="nav-item" data-page="app_proxy">
+          <span class="nav-icon" data-icon="apps"></span>
+          <span class="nav-label">分应用代理</span>
+        </button>
+        <button class="nav-item" data-page="route">
+          <span class="nav-icon" data-icon="route"></span>
+          <span class="nav-label">路由</span>
+        </button>
+        <button class="nav-item" data-page="power_saver">
+          <span class="nav-icon" data-icon="battery"></span>
+          <span class="nav-label">省电开关</span>
+        </button>
+        <button class="nav-item" data-page="settings">
+          <span class="nav-icon" data-icon="settings"></span>
+          <span class="nav-label">设置</span>
+        </button>
+
+        <div class="nav-divider"></div>
+
+        <button class="nav-item" data-page="logs">
+          <span class="nav-icon" data-icon="bug"></span>
+          <span class="nav-label">日志</span>
+        </button>
+        <button class="nav-item" data-page="dashboard">
+          <span class="nav-icon" data-icon="dashboard"></span>
+          <span class="nav-label">面板</span>
+        </button>
+        <button class="nav-item" data-page="tools">
+          <span class="nav-icon" data-icon="tools"></span>
+          <span class="nav-label">工具</span>
+        </button>
+
+        <div class="nav-divider"></div>
+
+        <button class="nav-item nav-action-only" id="btnQuickSwitchAppearance">
+          <span class="nav-icon" data-icon="palette"></span>
+          <span class="nav-label" id="quickSwitchAppearanceLabel">切换到怀旧界面</span>
+        </button>
+
+        <div class="nav-divider"></div>
+
+        <button class="nav-item" data-page="about">
+          <span class="nav-icon" data-icon="info"></span>
+          <span class="nav-label">关于</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Coordinator Area -->
+    <main class="main-coordinator" id="mainCoordinator">
+      <!-- Floating Liquid / Classic Solid AppBar -->
+      <header class="appbar" id="appBar">
+        <div class="toolbar glass-surface" id="toolbar">
+          <button class="icon-btn toolbar-menu-btn" id="btnToggleDrawer" title="菜单">
+            <span data-icon="menu"></span>
+          </button>
+          <div class="toolbar-title-wrap" id="toolbarTitleWrap">
+            <h1 class="toolbar-title" id="toolbarTitle">Nekobox-Mac</h1>
+          </div>
+          <div class="toolbar-search-box hidden" id="toolbarSearchBox">
+            <span class="search-prefix-icon" data-icon="search"></span>
+            <input type="text" id="globalSearchInput" placeholder="搜索节点名称、地址或协议…" autocomplete="off" />
+            <button class="icon-btn icon-btn-sm" id="btnCloseSearch" title="关闭搜索">
+              <span data-icon="close"></span>
+            </button>
+          </div>
+          <div class="toolbar-actions" id="toolbarActions"></div>
+        </div>
+      </header>
+
+      <!-- Page Viewport -->
+      <section class="page-holder" id="pageHolder"></section>
+
+      <!-- Floating Service FAB (Anchored to StatsBar, 1:1 layout_main.xml) -->
+      <button class="service-fab jelly-target" id="serviceFab" title="连接 / 断开">
+        <svg class="fab-progress-ring" id="fabProgressRing" viewBox="0 0 68 68">
+          <circle class="fab-progress-track" cx="34" cy="34" r="30" />
+          <circle class="fab-progress-arc" cx="34" cy="34" r="30" />
+        </svg>
+        <span class="fab-icon" id="fabIcon"></span>
+      </button>
+
+      <!-- Floating Bottom StatsBar (1:1 layout_main.xml) -->
+      <footer class="stats-bar glass-surface jelly-target" id="statsBar" title="点击测试当前连接 1-RTT 延迟">
+        <div class="stats-inner">
+          <div class="stats-traffic-row">
+            <span class="stats-line" id="statsTx">↑ 0 B/s (0 B)</span>
+            <span class="stats-pill-mode" id="statsModeBadge">系统代理 · :2080</span>
+          </div>
+          <div class="stats-line" id="statsRx">↓ 0 B/s (0 B)</div>
+          <div class="stats-status" id="statsStatus">未连接</div>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Liquid / Classic Popup Menu -->
+  <div class="popup-menu hidden" id="popupMenu"></div>
+
+  <!-- Modal Dialog Overlay -->
+  <div class="modal-backdrop hidden" id="modalBackdrop">
+    <div class="modal-dialog glass-surface" id="modalDialog" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modalTitle"></h2>
+        <button class="icon-btn icon-btn-sm" id="modalCloseBtn" title="关闭">
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-footer" id="modalFooter"></div>
+    </div>
+  </div>
+
+  <!-- Snackbar -->
+  <div class="snackbar hidden" id="snackbar"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
