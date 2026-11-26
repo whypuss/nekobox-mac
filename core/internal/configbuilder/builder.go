@@ -8,10 +8,13 @@ import (
 	"net"
 	"net/url"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
 	"nekobox-mac/internal/boxconfig"
+	"nekobox-mac/internal/macos"
 	"nekobox-mac/internal/store"
 	"nekobox-mac/internal/xraybridge"
 )
@@ -265,12 +268,26 @@ func BuildSingBoxConfig(st store.State, profile store.Profile, opts BuildOptions
 			if r.Protocol != "" {
 				ruleObj["protocol"] = splitList(r.Protocol)
 			}
-			if procs := splitList(r.ProcessName); len(procs) > 0 {
+			if procs := splitProcessNames(r.ProcessName); len(procs) > 0 {
 				ruleObj["process_name"] = procs
 				findProcess = true
 			}
 			if len(ruleObj) == 0 {
 				continue
+			}
+			// Mirror domain-only direct rules into DNS rules so TUN/FakeDNS also resolves them directly.
+			if r.Outbound == "direct" && r.IPs == "" && r.Ports == "" && r.Network == "" && r.Protocol == "" && r.ProcessName == "" {
+				dnsDirectRule := map[string]any{"server": "dns-direct"}
+				hasDomainCond := false
+				for _, k := range []string{"domain", "domain_suffix", "domain_keyword", "domain_regex"} {
+					if v, ok := ruleObj[k]; ok {
+						dnsDirectRule[k] = v
+						hasDomainCond = true
+					}
+				}
+				if hasDomainCond {
+					dnsRules = append(dnsRules, dnsDirectRule)
+				}
 			}
 			switch {
 			case r.Outbound == "direct":
@@ -290,19 +307,27 @@ func BuildSingBoxConfig(st store.State, profile store.Profile, opts BuildOptions
 			routeRules = append(routeRules, ruleObj)
 		}
 
-		// #2 Per-App macOS routing via process_name
-		var bypassProcs, forceProxyProcs []string
-		for bundleID, action := range appProxy.AppActions {
-			proc := appProxy.AppProcessMap[bundleID]
-			if proc == "" {
-				continue
+		// #2 Per-App macOS routing via process_path_regex (.app bundle + all Helpers/XPC) + process_name (OR semantics)
+		bypassProcs, bypassPathRegexes, forceProxyProcs, forceProxyPathRegexes := collectPerAppMatchers(appProxy)
+		if len(forceProxyPathRegexes) > 0 {
+			findProcess = true
+			routeRules = append(routeRules, map[string]any{
+				"process_path_regex": forceProxyPathRegexes,
+				"outbound":           TagProxy,
+			})
+			if useFakeDNS {
+				dnsRules = append(dnsRules, map[string]any{
+					"inbound":            []string{TagTUN},
+					"process_path_regex": forceProxyPathRegexes,
+					"query_type":         []string{"A", "AAAA"},
+					"server":             "dns-fake",
+					"disable_cache":      true,
+				})
 			}
-			switch action {
-			case "bypass":
-				bypassProcs = append(bypassProcs, proc)
-			case "force_proxy":
-				forceProxyProcs = append(forceProxyProcs, proc)
-			}
+			dnsRules = append(dnsRules, map[string]any{
+				"process_path_regex": forceProxyPathRegexes,
+				"server":             "dns-remote",
+			})
 		}
 		if len(forceProxyProcs) > 0 {
 			findProcess = true
@@ -310,12 +335,40 @@ func BuildSingBoxConfig(st store.State, profile store.Profile, opts BuildOptions
 				"process_name": forceProxyProcs,
 				"outbound":     TagProxy,
 			})
+			if useFakeDNS {
+				dnsRules = append(dnsRules, map[string]any{
+					"inbound":       []string{TagTUN},
+					"process_name":  forceProxyProcs,
+					"query_type":    []string{"A", "AAAA"},
+					"server":        "dns-fake",
+					"disable_cache": true,
+				})
+			}
+			dnsRules = append(dnsRules, map[string]any{
+				"process_name": forceProxyProcs,
+				"server":       "dns-remote",
+			})
+		}
+		if len(bypassPathRegexes) > 0 {
+			findProcess = true
+			routeRules = append(routeRules, map[string]any{
+				"process_path_regex": bypassPathRegexes,
+				"outbound":           TagBypass,
+			})
+			dnsRules = append(dnsRules, map[string]any{
+				"process_path_regex": bypassPathRegexes,
+				"server":             "dns-direct",
+			})
 		}
 		if len(bypassProcs) > 0 {
 			findProcess = true
 			routeRules = append(routeRules, map[string]any{
 				"process_name": bypassProcs,
 				"outbound":     TagBypass,
+			})
+			dnsRules = append(dnsRules, map[string]any{
+				"process_name": bypassProcs,
+				"server":       "dns-direct",
 			})
 		}
 
@@ -1158,6 +1211,109 @@ func firstLine(s, def string) string {
 		}
 	}
 	return def
+}
+
+func collectPerAppMatchers(appProxy store.AppProxyConfig) (bypassProcs, bypassPathRegexes, forceProxyProcs, forceProxyPathRegexes []string) {
+	if len(appProxy.AppActions) == 0 {
+		return nil, nil, nil, nil
+	}
+
+	// Lazily inspect installed macOS apps if any configured bundle lacks path or process metadata
+	// (e.g. legacy state.json created before appPathMap was stored).
+	needLookup := false
+	for bundleID, action := range appProxy.AppActions {
+		if action != "bypass" && action != "force_proxy" {
+			continue
+		}
+		if strings.TrimSpace(appProxy.AppPathMap[bundleID]) == "" || strings.TrimSpace(appProxy.AppProcessMap[bundleID]) == "" {
+			needLookup = true
+			break
+		}
+	}
+	var installed map[string]macos.InstalledApp
+	if needLookup {
+		installed = macos.LookupInstalledAppsByBundleID()
+	}
+
+	addUnique := func(dst *[]string, seen map[string]bool, val string) {
+		val = strings.TrimSpace(val)
+		if val == "" || seen[val] {
+			return
+		}
+		seen[val] = true
+		*dst = append(*dst, val)
+	}
+	addPathRegex := func(dst *[]string, seen map[string]bool, rawPath string) {
+		rawPath = strings.TrimSpace(rawPath)
+		if rawPath == "" {
+			return
+		}
+		clean := filepath.Clean(rawPath)
+		pattern := "^" + regexp.QuoteMeta(clean) + "(/|$)"
+		addUnique(dst, seen, pattern)
+		if resolved, err := filepath.EvalSymlinks(clean); err == nil && resolved != "" && resolved != clean {
+			addUnique(dst, seen, "^"+regexp.QuoteMeta(filepath.Clean(resolved))+"(/|$)")
+		}
+	}
+
+	bypassProcSeen := map[string]bool{}
+	bypassPathSeen := map[string]bool{}
+	forceProcSeen := map[string]bool{}
+	forcePathSeen := map[string]bool{}
+
+	for bundleID, action := range appProxy.AppActions {
+		if action != "bypass" && action != "force_proxy" {
+			continue
+		}
+		proc := strings.TrimSpace(appProxy.AppProcessMap[bundleID])
+		appPath := strings.TrimSpace(appProxy.AppPathMap[bundleID])
+		if info, ok := installed[bundleID]; ok {
+			if proc == "" {
+				proc = strings.TrimSpace(info.ProcessName)
+			}
+			if appPath == "" {
+				appPath = strings.TrimSpace(info.Path)
+			}
+		}
+		extras := macos.ExtraProcessNamesForBundle(bundleID)
+
+		if action == "bypass" {
+			addUnique(&bypassProcs, bypassProcSeen, proc)
+			for _, extra := range extras {
+				addUnique(&bypassProcs, bypassProcSeen, extra)
+			}
+			addPathRegex(&bypassPathRegexes, bypassPathSeen, appPath)
+		} else {
+			addUnique(&forceProxyProcs, forceProcSeen, proc)
+			for _, extra := range extras {
+				addUnique(&forceProxyProcs, forceProcSeen, extra)
+			}
+			addPathRegex(&forceProxyPathRegexes, forcePathSeen, appPath)
+		}
+	}
+
+	slices.Sort(bypassProcs)
+	slices.Sort(bypassPathRegexes)
+	slices.Sort(forceProxyProcs)
+	slices.Sort(forceProxyPathRegexes)
+	return
+}
+
+func splitProcessNames(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	// macOS executable names frequently contain spaces (e.g. "Google Chrome Helper");
+	// split only on newlines, commas, and semicolons.
+	replacer := strings.NewReplacer("\r\n", "\n", ",", "\n", "，", "\n", ";", "\n", "；", "\n")
+	var res []string
+	for _, item := range strings.Split(replacer.Replace(s), "\n") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			res = append(res, item)
+		}
+	}
+	return res
 }
 
 func splitList(s string) []string {

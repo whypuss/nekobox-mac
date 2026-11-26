@@ -730,6 +730,7 @@ func (o *routingOutbound) runRefreshOnce(ctx context.Context, file string, manua
 	}
 	if policy != nil {
 		o.policy.Store(policy)
+		o.clearRouteProbeCache()
 		o.logger.InfoContext(ctx, "Mihomo rule cache updated (", spec.repo, " @ ", policy.revision[:12], ", ", policy.ruleSetCount, " sets)")
 		return policy, nil
 	}

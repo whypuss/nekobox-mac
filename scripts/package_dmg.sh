@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
 DIST_DIR="$ROOT_DIR/dist"
 ARCH="${1:-universal}"
-VERSION="${VERSION:-1.6.3}"
+VERSION="${VERSION:-1.6.4}"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 
 case "$ARCH" in

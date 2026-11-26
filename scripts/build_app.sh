@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
 ARCH="${1:-universal}" # universal | arm64 | x64 (alias: amd64, x86_64)
-VERSION="${VERSION:-1.6.3}"
+VERSION="${VERSION:-1.6.4}"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 APP_DIR="$BUILD_DIR/Nekobox-Mac.app"
 ENTITLEMENTS="$ROOT_DIR/macos/entitlements.plist"

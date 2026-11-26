@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CORE_DIR="$ROOT_DIR/core"
 BUILD_DIR="$ROOT_DIR/build/core"
 ARCH="${1:-universal}" # universal | arm64 | x64 (alias: amd64, x86_64)
-VERSION="${VERSION:-1.6.3}"
+VERSION="${VERSION:-1.6.4}"
 
 mkdir -p "$BUILD_DIR"
 

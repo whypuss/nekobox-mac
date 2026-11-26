@@ -45,7 +45,7 @@ import (
 	"nekobox-mac/internal/xraybridge"
 )
 
-var AppVersion = "1.6.3-mac"
+var AppVersion = "1.6.4-mac"
 
 type State string
 
@@ -362,6 +362,8 @@ func (e *Engine) Start(profileID int64) (err error) {
 	defer e.opMu.Unlock()
 
 	e.mu.Lock()
+	wasManagingProxy := e.sysProxyManaged
+	prevPort := e.activePort
 	if e.state == StateConnected || e.state == StateConnecting {
 		e.stopLocked(false)
 	}
@@ -433,15 +435,20 @@ func (e *Engine) Start(profileID int64) (err error) {
 		return err
 	}
 
-	// Configure macOS System Proxy if enabled
+	// Configure macOS System Proxy if enabled (reuse existing config on hot reload when port is unchanged).
 	sysProxyManaged := false
-	if actualMode == "system_proxy" || (actualMode != "mixed_only" && st.Settings.AutoSetSystemProxy) {
-		if svcs, err := macos.EnableSystemProxy("127.0.0.1", st.Settings.MixedPort); err != nil {
+	wantSysProxy := actualMode == "system_proxy" || (actualMode != "mixed_only" && st.Settings.AutoSetSystemProxy)
+	if wantSysProxy {
+		if wasManagingProxy && prevPort == st.Settings.MixedPort {
+			sysProxyManaged = true
+		} else if svcs, err := macos.EnableSystemProxy("127.0.0.1", st.Settings.MixedPort); err != nil {
 			e.appendLog("warn", "配置 macOS 系统代理失败: "+err.Error())
 		} else {
 			sysProxyManaged = true
 			e.appendLog("info", fmt.Sprintf("已配置 macOS 系统代理 127.0.0.1:%d (%s)", st.Settings.MixedPort, strings.Join(svcs, ", ")))
 		}
+	} else if wasManagingProxy {
+		_ = macos.DisableSystemProxy()
 	}
 
 	e.mu.Lock()
@@ -469,6 +476,25 @@ func (e *Engine) Start(profileID int64) (err error) {
 	go e.pollTrafficLoop(stopCh, target.ID)
 	go debug.FreeOSMemory()
 	return nil
+}
+
+// ReloadIfConnected restarts the running core in place with updated routing/settings
+// when a proxy connection is active, so per-app bypass and rule edits take effect immediately.
+func (e *Engine) ReloadIfConnected(reason string) (bool, error) {
+	e.mu.Lock()
+	connected := e.state == StateConnected && e.activeProfile > 0
+	profileID := e.activeProfile
+	e.mu.Unlock()
+	if !connected {
+		return false, nil
+	}
+	if reason != "" {
+		e.appendLog("info", reason+"，正在热重载核心使新分流规则即时生效")
+	}
+	if err := e.Start(profileID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (e *Engine) failStart(err error) {

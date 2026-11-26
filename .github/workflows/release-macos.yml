@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.6.3)'
+        description: 'Release version (e.g. 1.6.4)'
         required: false
-        default: '1.6.3'
+        default: '1.6.4'
       create_release:
         description: 'Publish GitHub Release'
         type: boolean
@@ -53,11 +53,11 @@ jobs:
             IS_RELEASE="true"
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             VER="${{ inputs.version }}"
-            VER="${VER:-1.6.3}"
+            VER="${VER:-1.6.4}"
             TAG="v${VER}"
             IS_RELEASE="${{ inputs.create_release }}"
           else
-            VER="1.6.3"
+            VER="1.6.4"
             TAG="v${VER}"
             IS_RELEASE="false"
           fi
@@ -150,8 +150,9 @@ jobs:
           基于 [shixiaoheia/Nekobox-Next](https://github.com/shixiaoheia/Nekobox-Next) 移植的纯 macOS 原生三内核代理客户端，1:1 复刻 Liquid Glass 3.0 液态玻璃与怀旧双界面（含 21 套主题色）。
 
           ### 本次更新亮点
-          - **应用内自动检查更新 & 一键原地覆盖升级**：启动自动检测 GitHub Releases 新版本，支持在「关于 / 设置 / 菜单栏 / 托盘」一键在线下载并校验 SHA-256 与代码签名，原地原子替换 `Nekobox-Mac.app` 后自动重启，**无需手动卸载重装，完整保留全部节点、订阅、路由与设置**。
-          - **分组一键分享全部节点**：恢复分组卡片分享图标与底部「一键复制节点」快捷按钮，并在配置页更多菜单同步提供入口；支持明文多行节点链接、Base64 订阅编码、原始订阅链接复制及导出 `.txt` 文件。
+          - **彻底修复分应用「绕过直连 / 强制代理」不生效**：新增 `.app` 安装包路径正则匹配（`process_path_regex`，含符号链接解析）与已知伴生进程映射，完整覆盖 Chrome / Edge / Electron 等多进程应用的 `Helper` 子进程及 Safari 外置 XPC 进程（`com.apple.WebKit.Networking`），并同步写入 DNS 分流规则避免 TUN + FakeDNS 模式下被分配 FakeIP。
+          - **分流与路由规则变更自动无感热重载**：在已连接状态下切换分应用「绕过直连 / 强制代理」、修改 Meta 分流模式/规则源或增删改自定义路由规则时，后台自动无缝重载核心使新规则即时生效（端口未变时复用现有系统代理无闪烁），并在界面实时反馈状态。
+          - **修复系统代理模式下 Meta 绕过大陆 `GEOIP,cn` 盲区与自定义含空格进程名**：在 `mixed-in` / 系统代理模式下对未收录于规则集的未知域名自动通过直连 DNS 短超时探测并缓存结果，命中中国 IP 或私网 IP 时准确直连；同时修复自定义规则中含空格的 macOS 进程名被误拆分的问题。
 
           ### 下载选择
           - **\`Nekobox-Mac-${VER}-universal.dmg\`**（推荐）：Apple Silicon（M1/M2/M3/M4）+ Intel x64 通用原生版

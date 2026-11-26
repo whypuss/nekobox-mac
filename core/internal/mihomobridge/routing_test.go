@@ -450,3 +450,55 @@ func TestMihomoDNSFakeIPChinaProbeAndAdBlock(t *testing.T) {
 		t.Fatalf("expected remote/FakeIP for unlisted foreign domain, got %v", foreignIPs)
 	}
 }
+
+func TestMihomoRoutingOutboundSystemProxyDirectDNSProbe(t *testing.T) {
+	policy, err := bundledPolicy()
+	if err != nil {
+		t.Fatalf("load bundled policy: %v", err)
+	}
+	directDNS := &mockExchangeDNS{
+		tag: "dns-direct",
+		answers: map[string]string{
+			"unlisted-cn-site-37ff1e4d.org":       "114.114.114.114",
+			"unlisted-overseas-site-37ff1e4d.org": "8.8.8.8",
+			"intranet-app-37ff1e4d.org":           "192.168.10.5",
+		},
+	}
+	directOut := &stubOutbound{tag: "bypass"}
+	proxyOut := &stubOutbound{tag: "proxy"}
+
+	o := &routingOutbound{
+		matchOpts:  matchOptions{mode: RoutingModeBypassCN},
+		direct:     directOut,
+		proxy:      proxyOut,
+		directDNS:  directDNS,
+		probeCache: make(map[string]routeProbeCacheEntry),
+		inFlight:   make(map[string]*routeProbeCall),
+	}
+	o.policy.Store(policy)
+
+	// Unlisted domestic domain passed by name (mixed/system_proxy mode: no DstIP) must resolve via dns-direct and bypass directly.
+	out, decision := o.outboundFor(context.Background(), nil, M.Socksaddr{Fqdn: "unlisted-cn-site-37ff1e4d.org", Port: 443}, true)
+	if out != directOut || !decision.Direct || decision.Rule != "GEOIP,cn" {
+		t.Fatalf("expected unlisted CN domain to route direct via GEOIP,cn, got out=%v decision=%+v", out, decision)
+	}
+
+	// Unlisted intranet domain resolving to RFC1918 IP must bypass as PRIVATE-IP.
+	outPriv, decPriv := o.outboundFor(context.Background(), nil, M.Socksaddr{Fqdn: "intranet-app-37ff1e4d.org", Port: 443}, true)
+	if outPriv != directOut || !decPriv.Direct || decPriv.Rule != "PRIVATE-IP" {
+		t.Fatalf("expected unlisted intranet domain to route direct via PRIVATE-IP, got out=%v decision=%+v", outPriv, decPriv)
+	}
+
+	// Unlisted overseas domain must still route via proxy.
+	out2, decision2 := o.outboundFor(context.Background(), nil, M.Socksaddr{Fqdn: "unlisted-overseas-site-37ff1e4d.org", Port: 443}, true)
+	if out2 != proxyOut || decision2.Direct {
+		t.Fatalf("expected unlisted overseas domain to route via proxy, got out=%v decision=%+v", out2, decision2)
+	}
+}
+
+type stubOutbound struct {
+	adapter.Outbound
+	tag string
+}
+
+func (s *stubOutbound) Tag() string { return s.tag }

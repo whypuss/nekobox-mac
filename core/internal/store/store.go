@@ -94,12 +94,13 @@ type RouteRule struct {
 
 // AppProxyConfig holds macOS per-app routing & Meta smart routing preferences.
 type AppProxyConfig struct {
-	Scope           string            `json:"scope"`           // smart (all apps), include (only selected)
-	AppActions      map[string]string `json:"appActions"`      // bundleId -> "default" | "bypass" | "force_proxy"
-	AppProcessMap   map[string]string `json:"appProcessMap"`   // bundleId -> executable process name
-	MetaAutoRouting bool              `json:"metaAutoRouting"` // default true
-	MetaRuleSource  string            `json:"metaRuleSource"`  // metacubex | dustinwin
-	MetaRoutingMode string            `json:"metaRoutingMode"` // bypass_cn | gfw_only
+	Scope           string            `json:"scope"`                 // smart (all apps), include (only selected)
+	AppActions      map[string]string `json:"appActions"`            // bundleId -> "default" | "bypass" | "force_proxy"
+	AppProcessMap   map[string]string `json:"appProcessMap"`         // bundleId -> executable process name
+	AppPathMap      map[string]string `json:"appPathMap"`            // bundleId -> .app bundle path for Helper/sub-process matching
+	MetaAutoRouting bool              `json:"metaAutoRouting"`       // default true
+	MetaRuleSource  string            `json:"metaRuleSource"`        // metacubex | dustinwin
+	MetaRoutingMode string            `json:"metaRoutingMode"`       // bypass_cn | gfw_only
 	MetaBlockAds    bool              `json:"metaBlockAds"`
 }
 
@@ -245,6 +246,7 @@ func DefaultAppProxy() AppProxyConfig {
 		Scope:           "smart",
 		AppActions:      map[string]string{},
 		AppProcessMap:   map[string]string{},
+		AppPathMap:      map[string]string{},
 		MetaAutoRouting: true,
 		MetaRuleSource:  "metacubex",
 		MetaRoutingMode: "bypass_cn",
@@ -339,6 +341,9 @@ func mergeDefaults(st State) State {
 	}
 	if st.AppProxy.AppProcessMap == nil {
 		st.AppProxy.AppProcessMap = map[string]string{}
+	}
+	if st.AppProxy.AppPathMap == nil {
+		st.AppProxy.AppPathMap = map[string]string{}
 	}
 	if st.AppProxy.Scope == "" {
 		st.AppProxy.Scope = "smart"
@@ -890,6 +895,9 @@ func (s *Store) UpdateAppProxy(cfg AppProxyConfig) (AppProxyConfig, error) {
 	}
 	if cfg.AppProcessMap == nil {
 		cfg.AppProcessMap = map[string]string{}
+	}
+	if cfg.AppPathMap == nil {
+		cfg.AppPathMap = map[string]string{}
 	}
 	if cfg.Scope == "" {
 		cfg.Scope = "smart"

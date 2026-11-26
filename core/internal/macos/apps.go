@@ -80,6 +80,49 @@ var knownOverseasBundlePrefixes = []string{
 	"com.postmanlabs.",
 }
 
+var knownExtraProcessNames = map[string][]string{
+	// Safari performs all HTTP/HTTPS traffic via WebKit's external system XPC service.
+	"com.apple.Safari": {"com.apple.WebKit.Networking", "com.apple.Safari.SafeBrowsing.Service"},
+	// macOS App Store delegates downloads and API traffic to system daemons.
+	"com.apple.AppStore": {"appstoreagent", "storeassetd", "storedownloadd"},
+	// Common multi-process browsers / apps whose network process name differs from CFBundleExecutable.
+	"com.google.Chrome":           {"Google Chrome Helper", "Google Chrome Helper (Renderer)"},
+	"com.google.Chrome.canary":    {"Google Chrome Canary Helper"},
+	"com.microsoft.edgemac":       {"Microsoft Edge Helper"},
+	"com.brave.Browser":           {"Brave Browser Helper"},
+	"company.thebrowser.Browser":  {"Arc Helper"},
+	"org.mozilla.firefox":         {"firefox", "plugin-container"},
+	"com.tencent.xinWeChat":       {"WeChat", "WeChatAppEx", "WeChat Helper"},
+	"com.tencent.qq":              {"QQ", "QQ Helper"},
+	"com.valvesoftware.steam":     {"steam_osx", "steamwebhelper"},
+	"com.xunlei.Thunder":          {"Thunder", "DownloadSDKServer"},
+	"com.baidu.BaiduNetdisk-mac":  {"BaiduNetdisk_mac", "BaiduNetdisk_mac Helper"},
+}
+
+// ExtraProcessNamesForBundle returns known companion/XPC network process names
+// for a macOS bundle ID (e.g. WebKit Networking XPC for Safari).
+func ExtraProcessNamesForBundle(bundleID string) []string {
+	if extras, ok := knownExtraProcessNames[bundleID]; ok {
+		return slices.Clone(extras)
+	}
+	for id, extras := range knownExtraProcessNames {
+		if strings.EqualFold(id, bundleID) {
+			return slices.Clone(extras)
+		}
+	}
+	return nil
+}
+
+// LookupInstalledAppsByBundleID returns installed macOS apps indexed by CFBundleIdentifier.
+func LookupInstalledAppsByBundleID() map[string]InstalledApp {
+	apps := ListInstalledApps()
+	out := make(map[string]InstalledApp, len(apps))
+	for _, a := range apps {
+		out[a.BundleID] = a
+	}
+	return out
+}
+
 // ListInstalledApps scans standard macOS application folders and extracts metadata from Info.plist.
 func ListInstalledApps() []InstalledApp {
 	home, _ := os.UserHomeDir()
@@ -88,6 +131,7 @@ func ListInstalledApps() []InstalledApp {
 		isSystem bool
 	}{
 		{"/Applications", false},
+		{"/Applications/Utilities", true},
 		{filepath.Join(home, "Applications"), false},
 		{"/System/Applications", true},
 		{"/System/Applications/Utilities", true},

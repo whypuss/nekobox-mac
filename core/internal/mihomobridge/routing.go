@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	MC "github.com/metacubex/mihomo/constant"
+	mDNS "github.com/miekg/dns"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/outbound"
 	"github.com/sagernet/sing-box/log"
@@ -44,20 +46,39 @@ type routingOptions struct {
 	BlockAds   bool   `json:"block_ads,omitempty"`
 }
 
+type routeProbeCacheEntry struct {
+	direct  bool
+	rule    string
+	expires time.Time
+}
+
+type routeProbeCall struct {
+	done   chan struct{}
+	direct bool
+	rule   string
+	hit    bool
+}
+
 type routingOutbound struct {
 	outbound.Adapter
 	ctx        context.Context
 	manager    adapter.OutboundManager
+	dnsManager adapter.DNSTransportManager
 	logger     log.ContextLogger
 	options    routingOptions
 	sourceID   string
 	matchOpts  matchOptions
 	proxy      adapter.Outbound
 	direct     adapter.Outbound
+	directDNS  adapter.DNSTransport
 	policy     atomic.Pointer[routingPolicy]
 	refreshMu  sync.Mutex
 	decisionMu sync.Mutex
 	decisions  []routingDecision
+
+	probeMu    sync.RWMutex
+	probeCache map[string]routeProbeCacheEntry
+	inFlight   map[string]*routeProbeCall
 }
 
 type routingDecision struct {
@@ -75,16 +96,19 @@ func newRoutingOutbound(ctx context.Context, _ adapter.Router, logger log.Contex
 		return nil, fmt.Errorf("Mihomo routing requires separate proxy and direct outbounds")
 	}
 	return &routingOutbound{
-		Adapter:  outbound.NewAdapter(RoutingType, tag, []string{N.NetworkTCP, N.NetworkUDP}, []string{options.Proxy, options.Direct}),
-		ctx:      ctx,
-		manager:  service.FromContext[adapter.OutboundManager](ctx),
-		logger:   logger,
-		options:  options,
-		sourceID: normalizeRuleSource(options.RuleSource),
+		Adapter:    outbound.NewAdapter(RoutingType, tag, []string{N.NetworkTCP, N.NetworkUDP}, []string{options.Proxy, options.Direct}),
+		ctx:        ctx,
+		manager:    service.FromContext[adapter.OutboundManager](ctx),
+		dnsManager: service.FromContext[adapter.DNSTransportManager](ctx),
+		logger:     logger,
+		options:    options,
+		sourceID:   normalizeRuleSource(options.RuleSource),
 		matchOpts: matchOptions{
 			mode:     normalizeRoutingMode(options.Mode),
 			blockAds: options.BlockAds,
 		},
+		probeCache: make(map[string]routeProbeCacheEntry),
+		inFlight:   make(map[string]*routeProbeCall),
 	}, nil
 }
 
@@ -95,6 +119,9 @@ func (o *routingOutbound) Start(stage adapter.StartStage, scope *adapter.Scope) 
 		o.direct, _ = o.manager.Outbound(o.options.Direct)
 		if o.proxy == nil || o.direct == nil {
 			return fmt.Errorf("Mihomo routing outbounds are unavailable")
+		}
+		if o.dnsManager != nil {
+			o.directDNS, _ = o.dnsManager.Transport("dns-direct")
 		}
 		dir, _ := o.ctx.Value(cacheKey{}).(string)
 		policy, err := readCachedPolicyForSource(dir, o.sourceID)
@@ -123,7 +150,119 @@ func (o *routingOutbound) Start(stage adapter.StartStage, scope *adapter.Scope) 
 	return nil
 }
 
-func (o *routingOutbound) outboundFor(inbound *adapter.InboundContext, dest M.Socksaddr) (adapter.Outbound, routingDecision) {
+func (o *routingOutbound) lookupRouteProbeCache(host string) (direct bool, rule string, hit bool) {
+	o.probeMu.RLock()
+	entry, ok := o.probeCache[host]
+	o.probeMu.RUnlock()
+	if !ok || time.Now().After(entry.expires) {
+		return false, "", false
+	}
+	return entry.direct, entry.rule, true
+}
+
+func (o *routingOutbound) storeRouteProbeCache(host string, direct bool, rule string) {
+	o.probeMu.Lock()
+	if o.probeCache == nil {
+		o.probeCache = make(map[string]routeProbeCacheEntry)
+	}
+	if len(o.probeCache) >= probeCacheMaxEntries {
+		now := time.Now()
+		for k, v := range o.probeCache {
+			if now.After(v.expires) {
+				delete(o.probeCache, k)
+			}
+		}
+		if len(o.probeCache) >= probeCacheMaxEntries {
+			clear(o.probeCache)
+		}
+	}
+	o.probeCache[host] = routeProbeCacheEntry{
+		direct:  direct,
+		rule:    rule,
+		expires: time.Now().Add(probeCacheTTL),
+	}
+	o.probeMu.Unlock()
+}
+
+func (o *routingOutbound) clearRouteProbeCache() {
+	o.probeMu.Lock()
+	clear(o.probeCache)
+	o.probeMu.Unlock()
+}
+
+// probeUnlistedDirectDomain resolves an unlisted domain via dns-direct in system_proxy/mixed mode
+// where clients pass domain names without DstIP, enabling GEOIP,cn and PRIVATE-IP bypass.
+func (o *routingOutbound) probeUnlistedDirectDomain(ctx context.Context, policy *routingPolicy, host string) (direct bool, rule string, decided bool) {
+	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	if host == "" || policy == nil || o.directDNS == nil {
+		return false, "", false
+	}
+	if d, r, hit := o.lookupRouteProbeCache(host); hit {
+		return d, r, true
+	}
+
+	o.probeMu.Lock()
+	if o.inFlight == nil {
+		o.inFlight = make(map[string]*routeProbeCall)
+	}
+	if call, waiting := o.inFlight[host]; waiting {
+		o.probeMu.Unlock()
+		select {
+		case <-call.done:
+			return call.direct, call.rule, call.hit
+		case <-ctx.Done():
+			return false, "", false
+		}
+	}
+	call := &routeProbeCall{done: make(chan struct{})}
+	o.inFlight[host] = call
+	o.probeMu.Unlock()
+
+	defer func() {
+		o.probeMu.Lock()
+		delete(o.inFlight, host)
+		o.probeMu.Unlock()
+		close(call.done)
+	}()
+
+	query := new(mDNS.Msg)
+	query.SetQuestion(mDNS.Fqdn(host), mDNS.TypeA)
+	probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+	resp, err := o.directDNS.Exchange(probeCtx, query)
+	cancel()
+	if err != nil || resp == nil {
+		return false, "", false
+	}
+	addrs := extractAnswerIPs(resp)
+	if len(addrs) == 0 {
+		return false, "", false
+	}
+	if allDirectIPs(policy, addrs) {
+		allPrivate := true
+		for _, ip := range addrs {
+			if !(ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+				allPrivate = false
+				break
+			}
+		}
+		matchedRule := "GEOIP,cn"
+		if allPrivate {
+			matchedRule = "PRIVATE-IP"
+		}
+		o.storeRouteProbeCache(host, true, matchedRule)
+		call.direct = true
+		call.rule = matchedRule
+		call.hit = true
+		return true, matchedRule, true
+	}
+	o.storeRouteProbeCache(host, false, "MATCH")
+	call.direct = false
+	call.rule = "MATCH"
+	call.hit = true
+	return false, "MATCH", true
+}
+
+func (o *routingOutbound) outboundFor(ctx context.Context, inbound *adapter.InboundContext, dest M.Socksaddr, allowDNSProbe bool) (adapter.Outbound, routingDecision) {
 	policy := o.policy.Load()
 	meta := MC.Metadata{Host: dest.Fqdn, DstIP: dest.Addr.Unmap(), DstPort: dest.Port}
 	fakeIP := false
@@ -136,6 +275,20 @@ func (o *routingOutbound) outboundFor(inbound *adapter.InboundContext, dest M.So
 	action, rule := actionProxy, "MATCH"
 	if policy != nil {
 		action, rule = policy.matchAction(&meta, fakeIP, o.matchOpts)
+		if rule == "MATCH" && meta.Host != "" && !fakeIP && !meta.DstIP.IsValid() {
+			host := strings.ToLower(strings.TrimSuffix(meta.Host, "."))
+			if direct, cachedRule, hit := o.lookupRouteProbeCache(host); hit {
+				if direct {
+					action = actionDirect
+					rule = cachedRule
+				}
+			} else if allowDNSProbe && o.directDNS != nil {
+				if direct, probedRule, decided := o.probeUnlistedDirectDomain(ctx, policy, host); decided && direct {
+					action = actionDirect
+					rule = probedRule
+				}
+			}
+		}
 	}
 	decision := routingDecision{
 		Destination: meta.Host,
@@ -290,7 +443,7 @@ func RefreshRulesNow(manager adapter.OutboundManager) (string, error) {
 }
 
 func (o *routingOutbound) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
-	out, decision := o.outboundFor(adapter.ContextFrom(ctx), destination)
+	out, decision := o.outboundFor(ctx, adapter.ContextFrom(ctx), destination, true)
 	if out == nil {
 		o.recordDecision(decision, true)
 		return nil, errBlockedByMeta
@@ -301,7 +454,7 @@ func (o *routingOutbound) DialContext(ctx context.Context, network string, desti
 }
 
 func (o *routingOutbound) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
-	out, decision := o.outboundFor(adapter.ContextFrom(ctx), destination)
+	out, decision := o.outboundFor(ctx, adapter.ContextFrom(ctx), destination, true)
 	if out == nil {
 		o.recordDecision(decision, true)
 		return nil, errBlockedByMeta
@@ -321,7 +474,7 @@ type routingTracker struct{ adapter.ConnectionTracker }
 
 func (t routingTracker) RoutedConnection(ctx context.Context, conn net.Conn, meta adapter.InboundContext, rule adapter.Rule, next adapter.Outbound) net.Conn {
 	if route, ok := next.(*routingOutbound); ok {
-		resolved, _ := route.outboundFor(&meta, meta.Destination)
+		resolved, _ := route.outboundFor(ctx, &meta, meta.Destination, false)
 		if resolved != nil {
 			next = resolved
 		}
@@ -331,7 +484,7 @@ func (t routingTracker) RoutedConnection(ctx context.Context, conn net.Conn, met
 
 func (t routingTracker) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, meta adapter.InboundContext, rule adapter.Rule, next adapter.Outbound) N.PacketConn {
 	if route, ok := next.(*routingOutbound); ok {
-		resolved, _ := route.outboundFor(&meta, meta.Destination)
+		resolved, _ := route.outboundFor(ctx, &meta, meta.Destination, false)
 		if resolved != nil {
 			next = resolved
 		}

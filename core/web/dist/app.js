@@ -656,6 +656,9 @@
     }
 
     const actions = ap.appActions || {};
+    appState.appProxy.appActions = appState.appProxy.appActions || {};
+    appState.appProxy.appProcessMap = appState.appProxy.appProcessMap || {};
+    appState.appProxy.appPathMap = appState.appProxy.appPathMap || {};
     let countBypass = 0, countForce = 0;
     Object.values(actions).forEach((v) => {
       if (v === "bypass") countBypass++;
@@ -686,7 +689,7 @@
               <span class="pref-icon-badge" data-icon="info"></span>
               <div class="pref-text">
                 <div class="pref-title">三层分流优先级</div>
-                <div class="pref-summary">侧边栏「路由」自定义规则 (#1 最高优先级) &gt; 分应用「强制代理 / 绕过直连」(#2, 基于 macOS process_name) &gt; Meta 自动分流 (#3)。</div>
+                <div class="pref-summary">侧边栏「路由」自定义规则 (#1 最高优先级) &gt; 分应用「强制代理 / 绕过直连」(#2, 按 macOS 应用包路径 + 进程名自动覆盖 Helper 子进程) &gt; Meta 自动分流 (#3)。修改后自动热重载即时生效。</div>
               </div>
             </div>
             <div class="pref-row" id="rowMetaAuto">
@@ -773,7 +776,7 @@
                       <div class="pref-title">${escapeHtml(a.name)}</div>
                       <div class="pref-summary">${escapeHtml(a.bundleId)} · 进程: <code>${escapeHtml(a.processName)}</code></div>
                     </div>
-                    <button class="app-action-btn app-action-${act}" data-bid="${escapeHtml(a.bundleId)}" data-proc="${escapeHtml(a.processName)}">${label}</button>
+                    <button class="app-action-btn app-action-${act}" data-bid="${escapeHtml(a.bundleId)}" data-proc="${escapeHtml(a.processName)}" data-path="${escapeHtml(a.path || "")}" data-name="${escapeHtml(a.name || a.processName)}">${label}</button>
                   </div>
                 `;
               }).join("") || `<div class="empty-state" style="padding:24px">无匹配的 macOS 应用</div>`}
@@ -786,12 +789,18 @@
     const saveAP = async () => {
       const res = await api("/api/app-proxy", "POST", appState.appProxy);
       appState = res.state;
+      if (res.status) {
+        runtimeStatus = res.status;
+        renderStatusBar();
+      }
+      return res;
     };
+    const reloadSuffix = (res) => res?.reloadError ? `（已保存，热重载失败：${res.reloadError}）` : (res?.reloaded ? "（已即时生效）" : "（连接后生效）");
 
-    $("swMetaAuto").onchange = async (e) => { appState.appProxy.metaAutoRouting = e.target.checked; await saveAP(); renderAppProxyPage(holder); showSnackbar("Meta 自动分流已更新（重连生效）"); };
-    $("selMetaSource").onchange = async (e) => { appState.appProxy.metaRuleSource = e.target.value; await saveAP(); showSnackbar("规则源已切换"); };
-    $("selMetaMode").onchange = async (e) => { appState.appProxy.metaRoutingMode = e.target.value; await saveAP(); showSnackbar("分流模式已更新"); };
-    $("swMetaAds").onchange = async (e) => { appState.appProxy.metaBlockAds = e.target.checked; await saveAP(); };
+    $("swMetaAuto").onchange = async (e) => { appState.appProxy.metaAutoRouting = e.target.checked; const res = await saveAP(); renderAppProxyPage(holder); showSnackbar("Meta 自动分流已更新" + reloadSuffix(res)); };
+    $("selMetaSource").onchange = async (e) => { appState.appProxy.metaRuleSource = e.target.value; const res = await saveAP(); showSnackbar("规则源已切换" + reloadSuffix(res)); };
+    $("selMetaMode").onchange = async (e) => { appState.appProxy.metaRoutingMode = e.target.value; const res = await saveAP(); showSnackbar("分流模式已更新" + reloadSuffix(res)); };
+    $("swMetaAds").onchange = async (e) => { appState.appProxy.metaBlockAds = e.target.checked; const res = await saveAP(); showSnackbar("广告拦截设置已更新" + reloadSuffix(res)); };
     $("btnMetaRefresh").onclick = async () => {
       $("btnMetaRefresh").textContent = "更新中…";
       try {
@@ -814,12 +823,13 @@
         if (a.category === "china") {
           appState.appProxy.appActions[a.bundleId] = "bypass";
           appState.appProxy.appProcessMap[a.bundleId] = a.processName;
+          if (a.path) appState.appProxy.appPathMap[a.bundleId] = a.path;
           n++;
         }
       });
-      await saveAP();
+      const res = await saveAP();
       renderAppProxyPage(holder);
-      showSnackbar(`已将 ${n} 个国产应用设为绕过直连`);
+      showSnackbar(`已将 ${n} 个国产应用设为绕过直连` + reloadSuffix(res));
     };
     $("chipAutoOverseas").onclick = async () => {
       let n = 0;
@@ -827,12 +837,13 @@
         if (a.category === "overseas") {
           appState.appProxy.appActions[a.bundleId] = "force_proxy";
           appState.appProxy.appProcessMap[a.bundleId] = a.processName;
+          if (a.path) appState.appProxy.appPathMap[a.bundleId] = a.path;
           n++;
         }
       });
-      await saveAP();
+      const res = await saveAP();
       renderAppProxyPage(holder);
-      showSnackbar(`已将 ${n} 个海外应用设为强制代理`);
+      showSnackbar(`已将 ${n} 个海外应用设为强制代理` + reloadSuffix(res));
     };
     $("appSearchInput").oninput = (e) => {
       appSearchKeyword = e.target.value;
@@ -844,15 +855,22 @@
       btn.onclick = async () => {
         const bid = btn.dataset.bid;
         const proc = btn.dataset.proc;
+        const appPath = btn.dataset.path || "";
+        const appName = btn.dataset.name || proc;
         const cur = appState.appProxy.appActions[bid] || "default";
         const next = cur === "default" ? "bypass" : cur === "bypass" ? "force_proxy" : "default";
-        if (next === "default") delete appState.appProxy.appActions[bid];
-        else {
+        if (next === "default") {
+          delete appState.appProxy.appActions[bid];
+          delete appState.appProxy.appPathMap[bid];
+        } else {
           appState.appProxy.appActions[bid] = next;
           appState.appProxy.appProcessMap[bid] = proc;
+          if (appPath) appState.appProxy.appPathMap[bid] = appPath;
         }
-        await saveAP();
+        const res = await saveAP();
         renderAppProxyPage(holder);
+        const nextLabel = next === "bypass" ? "绕过直连" : next === "force_proxy" ? "强制代理" : "默认分流";
+        showSnackbar(`${appName} → ${nextLabel}` + reloadSuffix(res));
       };
     });
   }
@@ -899,7 +917,9 @@
       b.onclick = async () => {
         const res = await api("/api/rules/delete", "POST", { id: Number(b.dataset.rid) });
         appState = res.state;
+        if (res.status) { runtimeStatus = res.status; renderStatusBar(); }
         renderCurrentPage();
+        showSnackbar(res.reloaded ? "路由规则已删除（已即时生效）" : "路由规则已删除");
       };
     });
     holder.querySelectorAll(".sw-r-enable").forEach((sw) => {
@@ -909,6 +929,8 @@
         rule.enabled = sw.checked;
         const res = await api("/api/rules/upsert", "POST", rule);
         appState = res.state;
+        if (res.status) { runtimeStatus = res.status; renderStatusBar(); }
+        showSnackbar((sw.checked ? "规则已启用" : "规则已停用") + (res.reloaded ? "（已即时生效）" : ""));
       };
     });
   }
@@ -1098,7 +1120,7 @@
               <span class="pref-icon-badge" data-icon="download"></span>
               <div class="pref-text">
                 <div class="pref-title">软件更新（支持原地升级）${latestUpdateInfo?.hasUpdate ? ` <span class="update-badge-pill">新版本 v${escapeHtml(latestUpdateInfo.latestVersion)}</span>` : ""}</div>
-                <div class="pref-summary">当前版本 ${escapeHtml(coreVersions?.app || "1.6.3-mac")} · 在线原地覆盖升级，自动保留全部节点与设置</div>
+                <div class="pref-summary">当前版本 ${escapeHtml(coreVersions?.app || "1.6.4-mac")} · 在线原地覆盖升级，自动保留全部节点与设置</div>
               </div>
               <button class="btn ${latestUpdateInfo?.hasUpdate ? "btn-primary" : "btn-tonal"}" type="button" id="btnCheckUpdateSettings">${latestUpdateInfo?.hasUpdate ? "立即升级" : "检查更新"}</button>
             </div>
@@ -1457,7 +1479,7 @@
               <img class="about-logo" src="/assets/app-icon.png" alt="Nekobox-Mac" />
               <div>
                 <div style="font-size:20px;font-weight:800">Nekobox-Mac</div>
-                <span class="status-pill">${escapeHtml(v.app || "1.6.3-mac")} · macOS Universal (arm64 + x86_64)</span>
+                <span class="status-pill">${escapeHtml(v.app || "1.6.4-mac")} · macOS Universal (arm64 + x86_64)</span>
               </div>
             </div>
             <div class="core-pills">
@@ -1474,7 +1496,7 @@
               <span class="pref-icon-badge" data-icon="download"></span>
               <div class="pref-text">
                 <div class="pref-title">检查软件更新${latestUpdateInfo?.hasUpdate ? ` <span class="update-badge-pill">可升级至 v${escapeHtml(latestUpdateInfo.latestVersion)}</span>` : ""}</div>
-                <div class="pref-summary">${latestUpdateInfo?.hasUpdate ? `发现新版本 ${escapeHtml(latestUpdateInfo.latestTag)} · 点击一键原地升级，无需手动删除重装，完整保留所有节点与配置` : `当前版本 ${escapeHtml(v.app || "1.6.3-mac")} · 支持应用内原地覆盖升级并自动重启`}</div>
+                <div class="pref-summary">${latestUpdateInfo?.hasUpdate ? `发现新版本 ${escapeHtml(latestUpdateInfo.latestTag)} · 点击一键原地升级，无需手动删除重装，完整保留所有节点与配置` : `当前版本 ${escapeHtml(v.app || "1.6.4-mac")} · 支持应用内原地覆盖升级并自动重启`}</div>
               </div>
               <button class="btn ${latestUpdateInfo?.hasUpdate ? "btn-primary" : "btn-tonal"}" type="button" id="btnAboutCheckUpdate">${latestUpdateInfo?.hasUpdate ? "立即升级" : "检查更新"}</button>
             </div>
@@ -2314,7 +2336,7 @@
       openModal("检查软件更新", `
         <div class="empty-state" style="padding:26px 12px">
           <div style="font-size:15px;font-weight:700;margin-bottom:6px">正在从 GitHub Releases 检查最新版本…</div>
-          <div class="pref-summary">当前版本：${escapeHtml(coreVersions?.app || "1.6.3-mac")}</div>
+          <div class="pref-summary">当前版本：${escapeHtml(coreVersions?.app || "1.6.4-mac")}</div>
         </div>
       `, [{ label: "关闭", cls: "btn-ghost", action: closeModal }]);
 
@@ -2570,9 +2592,10 @@
         r.outbound = $("rlOut").value;
         const res = await api("/api/rules/upsert", "POST", r);
         appState = res.state;
+        if (res.status) { runtimeStatus = res.status; renderStatusBar(); }
         closeModal();
         renderCurrentPage();
-        showSnackbar("路由规则已保存");
+        showSnackbar(res.reloaded ? "路由规则已保存（已即时生效）" : "路由规则已保存");
       }},
     ]);
   }

@@ -754,6 +754,14 @@ func (s *Server) handleUpdateAllSubs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"updated": updated, "errors": errs, "state": s.store.Snapshot()})
 }
 
+func (s *Server) reloadRoutingIfConnected(reason string) (bool, string) {
+	reloaded, err := s.engine.ReloadIfConnected(reason)
+	if err != nil {
+		return false, err.Error()
+	}
+	return reloaded, ""
+}
+
 func (s *Server) handleUpsertRule(w http.ResponseWriter, r *http.Request) {
 	var rule store.RouteRule
 	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
@@ -765,7 +773,12 @@ func (s *Server) handleUpsertRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, map[string]any{"rule": saved, "state": s.store.Snapshot()})
+	reloaded, reloadErr := s.reloadRoutingIfConnected("自定义路由规则已更新")
+	resp := map[string]any{"rule": saved, "state": s.store.Snapshot(), "status": s.engine.Status(), "reloaded": reloaded}
+	if reloadErr != "" {
+		resp["reloadError"] = reloadErr
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
@@ -780,7 +793,12 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, map[string]any{"state": s.store.Snapshot()})
+	reloaded, reloadErr := s.reloadRoutingIfConnected("自定义路由规则已删除")
+	resp := map[string]any{"state": s.store.Snapshot(), "status": s.engine.Status(), "reloaded": reloaded}
+	if reloadErr != "" {
+		resp["reloadError"] = reloadErr
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handleReorderRules(w http.ResponseWriter, r *http.Request) {
@@ -792,7 +810,12 @@ func (s *Server) handleReorderRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.ReorderRules(body.IDs)
-	writeJSON(w, map[string]any{"state": s.store.Snapshot()})
+	reloaded, reloadErr := s.reloadRoutingIfConnected("自定义路由规则顺序已更新")
+	resp := map[string]any{"state": s.store.Snapshot(), "status": s.engine.Status(), "reloaded": reloaded}
+	if reloadErr != "" {
+		resp["reloadError"] = reloadErr
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handleMacApps(w http.ResponseWriter, r *http.Request) {
@@ -846,12 +869,47 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	if cfg.AppProcessMap == nil {
+		cfg.AppProcessMap = map[string]string{}
+	}
+	if cfg.AppPathMap == nil {
+		cfg.AppPathMap = map[string]string{}
+	}
+	// Auto-enrich missing app bundle paths / process names for configured per-app rules.
+	needLookup := false
+	for bid, act := range cfg.AppActions {
+		if (act == "bypass" || act == "force_proxy") && (strings.TrimSpace(cfg.AppPathMap[bid]) == "" || strings.TrimSpace(cfg.AppProcessMap[bid]) == "") {
+			needLookup = true
+			break
+		}
+	}
+	if needLookup {
+		installed := macos.LookupInstalledAppsByBundleID()
+		for bid, act := range cfg.AppActions {
+			if act != "bypass" && act != "force_proxy" {
+				continue
+			}
+			if info, ok := installed[bid]; ok {
+				if strings.TrimSpace(cfg.AppProcessMap[bid]) == "" {
+					cfg.AppProcessMap[bid] = info.ProcessName
+				}
+				if strings.TrimSpace(cfg.AppPathMap[bid]) == "" {
+					cfg.AppPathMap[bid] = info.Path
+				}
+			}
+		}
+	}
 	saved, err := s.store.UpdateAppProxy(cfg)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, map[string]any{"appProxy": saved, "state": s.store.Snapshot()})
+	reloaded, reloadErr := s.reloadRoutingIfConnected("分应用代理 / Meta 分流配置已更新")
+	resp := map[string]any{"appProxy": saved, "state": s.store.Snapshot(), "status": s.engine.Status(), "reloaded": reloaded}
+	if reloadErr != "" {
+		resp["reloadError"] = reloadErr
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handleMetaStatus(w http.ResponseWriter, r *http.Request) {
